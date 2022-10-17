@@ -4,30 +4,21 @@ use poise::{
     CreateReply, ReplyHandle,
 };
 use reqwest::{header::AUTHORIZATION, Response};
+use std::sync::Arc;
 use tokio::time::{sleep, Duration};
-
 type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, Data, Error>;
 // User data, which is stored and accessible in all command invocations
+#[derive(Debug, Clone)]
 struct Data {
     client: reqwest::Client,
     replicate_token: String,
     stable_version: String,
 }
 
-async fn send_message(
-    ctx: Context<'_>,
-    thread: &ReplyHandle<'_>,
-    title: String,
-    message: String,
-    image: Option<String>,
-) {
+async fn unified_error(ctx: Context<'_>, thread: &ReplyHandle<'_>, description: &String) {
     let mut embed = CreateEmbed::default();
-    embed.title(title).description(message);
-
-    if let Some(v) = image {
-        embed.image(v);
-    }
+    embed.title("❌ An Error Occurred").description(description);
 
     thread
         .edit(ctx, |f| {
@@ -42,11 +33,10 @@ async fn send_message(
         .unwrap();
 }
 
-async fn dream_request(ctx: Context<'_>, prompt: String) -> Result<Response, reqwest::Error> {
-    let client = &ctx.data().client;
-    let stable_version = &ctx.data().stable_version;
-    let replicate_token = &ctx.data().replicate_token;
-
+async fn dream_request(data: &Data, prompt: &String) -> Result<Response, reqwest::Error> {
+    let client = &data.client;
+    let stable_version = &data.stable_version;
+    let replicate_token = &data.replicate_token;
     return client
         .post("https://api.replicate.com/v1/predictions")
         .header(AUTHORIZATION, format!("Token {replicate_token}"))
@@ -60,11 +50,9 @@ async fn dream_request(ctx: Context<'_>, prompt: String) -> Result<Response, req
         .await;
 }
 
-async fn dream_check(
-    client: &reqwest::Client,
-    replicate_token: &String,
-    id: &String,
-) -> Result<Response, reqwest::Error> {
+async fn dream_check(data: &Data, id: &String) -> Result<Response, reqwest::Error> {
+    let client = &data.client;
+    let replicate_token = &data.replicate_token;
     return client
         .get(format!("https://api.replicate.com/v1/predictions/{id}"))
         .header(AUTHORIZATION, format!("Token {replicate_token}"))
@@ -72,98 +60,76 @@ async fn dream_check(
         .await;
 }
 
-async fn handle_response(
-    ctx: Context<'_>,
-    thread: &ReplyHandle<'_>,
-    response: Response,
-) -> Result<String, String> {
-    let result = response.json::<serde_json::Value>().await;
-    let parsed = result.unwrap();
-    let id = parsed["id"].as_str();
-
-    match id {
-        Some(id_str) => {
-            send_message(
-                ctx,
-                thread,
-                "✅ Success".to_string(),
-                format!("Request submitted with `id` {id_str}, polling for response"),
-                None,
-            )
-            .await;
-            return Ok(id_str.to_string());
-        }
-        None => {
-            send_message(
-                ctx,
-                thread,
-                "❌ An Error Occurred".to_string(),
-                "We did not receive an `id` back from Replicate".to_string(),
-                None,
-            )
-            .await;
-            return Err("We did not receive an `id` back from Replicate".to_string());
-        }
-    }
-}
-
-/// Displays your or another user's account creation date
 #[poise::command(slash_command)]
 async fn dream(ctx: Context<'_>, prompt: String) -> Result<(), Error> {
     ctx.defer().await?;
 
-    sleep(Duration::from_millis(3000)).await;
-    let thread = &ctx.say(format!("Your prompt was {prompt}")).await?;
+    let thread = ctx
+        .send(|m| {
+            m.embed(|e| {
+                e.title("⌚ Request Received")
+                    .field("Prompt", &prompt, false)
+            })
+        })
+        .await?;
 
-    let result = dream_request(ctx, prompt).await;
+    let data = Arc::new(ctx.data().clone());
+    let res = dream_handler(data, &prompt).await;
 
-    match result {
-        Ok(response) => {
-            let id = handle_response(ctx, thread, response).await.unwrap();
-            let replicate_token = ctx.data().replicate_token.to_string();
-            println!("{}", replicate_token);
-            println!("{}", id);
+    match res {
+        Ok(image) => {
+            let mut embed = CreateEmbed::default();
+            embed
+                .title("✅ Request Completed")
+                .image(image)
+                .field("Prompt", &prompt, false);
 
-            let poll = tokio::spawn(async move {
-                let client = reqwest::Client::new();
-                loop {
-                    let status = dream_check(&client, &replicate_token, &id).await.unwrap();
-                    let result = status.json::<serde_json::Value>().await.unwrap();
-                    let status = result["status"].as_str().unwrap();
-
-                    if status == "succeeded" {
-                        return result["output"][0].as_str().unwrap().to_string();
-                    }
-
-                    sleep(Duration::from_secs(2)).await;
-                }
-            });
-
-            let image = poll.await.unwrap();
-
-            send_message(
-                ctx,
-                thread,
-                "⌚ Done Waiting".to_string(),
-                "The request was completed!".to_string(),
-                Some(image),
-            )
-            .await;
+            thread
+                .edit(ctx, |f| {
+                    *f = CreateReply {
+                        content: Some("".to_string()),
+                        embeds: vec![embed],
+                        ..Default::default()
+                    };
+                    f
+                })
+                .await
+                .unwrap();
         }
-        Err(_) => {
-            send_message(
-                ctx,
-                thread,
-                "❌ An Error Occurred".to_string(),
-                "Failed to submit request to Replicate".to_string(),
-                None,
-            )
-            .await;
-            return Ok(());
-        }
+        Err(err) => unified_error(ctx, &thread, &err.to_string()).await,
     }
-
     Ok(())
+}
+
+/// Displays your or another user's account creation date
+async fn dream_handler(data: Arc<Data>, prompt: &String) -> Result<String, Error> {
+    let response = dream_request(&data, prompt).await?;
+
+    let result = response.json::<serde_json::Value>().await?;
+    let id = result["id"]
+        .as_str()
+        .ok_or("Response object did not contain an id")?
+        .to_string();
+
+    let poll = tokio::spawn({
+        async move {
+            loop {
+                let status = dream_check(&data, &id).await.unwrap();
+                let result = status.json::<serde_json::Value>().await.unwrap();
+                let status = result["status"].as_str().unwrap();
+
+                if status == "succeeded" {
+                    return result["output"][0].as_str().unwrap().to_string();
+                }
+
+                sleep(Duration::from_secs(2)).await;
+            }
+        }
+    });
+
+    return poll
+        .await
+        .map_err(|_| Err::<_, String>("Error...".into()).unwrap());
 }
 
 #[tokio::main]
