@@ -37,7 +37,7 @@ async fn dream_request(data: &Data, prompt: &String) -> Result<Response, reqwest
     let client = &data.client;
     let stable_version = &data.stable_version;
     let replicate_token = &data.replicate_token;
-    return client
+    client
         .post("https://api.replicate.com/v1/predictions")
         .header(AUTHORIZATION, format!("Token {replicate_token}"))
         .json(&serde_json::json!({
@@ -47,17 +47,17 @@ async fn dream_request(data: &Data, prompt: &String) -> Result<Response, reqwest
             }
         }))
         .send()
-        .await;
+        .await
 }
 
 async fn dream_check(data: &Data, id: &String) -> Result<Response, reqwest::Error> {
     let client = &data.client;
     let replicate_token = &data.replicate_token;
-    return client
+    client
         .get(format!("https://api.replicate.com/v1/predictions/{id}"))
         .header(AUTHORIZATION, format!("Token {replicate_token}"))
         .send()
-        .await;
+        .await
 }
 
 #[poise::command(slash_command)]
@@ -127,9 +127,8 @@ async fn dream_handler(data: Arc<Data>, prompt: &String) -> Result<String, Error
         }
     });
 
-    return poll
-        .await
-        .map_err(|_| Err::<_, String>("Error...".into()).unwrap());
+    poll.await
+        .map_err(|_| Err::<_, String>("Error...".into()).unwrap())
 }
 
 #[tokio::main]
@@ -144,7 +143,7 @@ async fn main() {
             Box::pin(async move {
                 // construct user data here (invoked when bot connects to Discord)
                 let commands = &framework.options().commands;
-                let create_commands = poise::builtins::create_application_commands(&commands);
+                let create_commands = poise::builtins::create_application_commands(commands);
 
                 serenity::Command::set_global_application_commands(ctx.http(), |b| {
                     *b = create_commands;
