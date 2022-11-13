@@ -1,170 +1,95 @@
+use crate::commands::command_definitions;
+use commands::handle_interaction;
 use dotenv::dotenv;
-use poise::{
-    serenity_prelude::{self as serenity, CacheHttp, CreateEmbed},
-    CreateReply, ReplyHandle,
+use futures::stream::StreamExt;
+use std::{env, error::Error, sync::Arc};
+use twilight_cache_inmemory::{InMemoryCache, ResourceType};
+use twilight_gateway::{
+    cluster::{Cluster, ShardScheme},
+    Event, Intents,
 };
-use reqwest::{header::AUTHORIZATION, Response};
-use std::sync::Arc;
-use tokio::time::{sleep, Duration};
-type Error = Box<dyn std::error::Error + Send + Sync>;
-type Context<'a> = poise::Context<'a, Data, Error>;
-// User data, which is stored and accessible in all command invocations
-#[derive(Debug, Clone)]
-struct Data {
-    client: reqwest::Client,
-    replicate_token: String,
-    stable_version: String,
-}
+use twilight_http::Client as HttpClient;
+use twilight_model::id::{marker::ApplicationMarker, Id};
 
-async fn unified_error(ctx: Context<'_>, thread: &ReplyHandle<'_>, description: &String) {
-    let mut embed = CreateEmbed::default();
-    embed.title("❌ An Error Occurred").description(description);
+mod commands;
 
-    thread
-        .edit(ctx, |f| {
-            *f = CreateReply {
-                content: Some("".to_string()),
-                embeds: vec![embed],
-                ..Default::default()
-            };
-            f
-        })
-        .await
-        .unwrap();
-}
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
+    dotenv().ok();
+    let token = env::var("DISCORD_TOKEN")?;
 
-async fn dream_request(data: &Data, prompt: &String) -> Result<Response, reqwest::Error> {
-    let client = &data.client;
-    let stable_version = &data.stable_version;
-    let replicate_token = &data.replicate_token;
-    client
-        .post("https://api.replicate.com/v1/predictions")
-        .header(AUTHORIZATION, format!("Token {replicate_token}"))
-        .json(&serde_json::json!({
-            "version": stable_version,
-            "input": {
-                "prompt": prompt
-            }
-        }))
-        .send()
-        .await
-}
+    // Start a single shard.
+    let scheme = ShardScheme::Range {
+        from: 0,
+        to: 0,
+        total: 1,
+    };
 
-async fn dream_check(data: &Data, id: &String) -> Result<Response, reqwest::Error> {
-    let client = &data.client;
-    let replicate_token = &data.replicate_token;
-    client
-        .get(format!("https://api.replicate.com/v1/predictions/{id}"))
-        .header(AUTHORIZATION, format!("Token {replicate_token}"))
-        .send()
-        .await
-}
+    // Specify intents requesting events about things like new and updated
+    // messages in a guild and direct messages.
+    let intents = Intents::GUILD_MESSAGES | Intents::DIRECT_MESSAGES;
 
-#[poise::command(slash_command)]
-async fn dream(ctx: Context<'_>, prompt: String) -> Result<(), Error> {
-    ctx.defer().await?;
-
-    let thread = ctx
-        .send(|m| {
-            m.embed(|e| {
-                e.title("⌚ Request Received")
-                    .field("Prompt", &prompt, false)
-            })
-        })
+    let (cluster, mut events) = Cluster::builder(token.clone(), intents)
+        .shard_scheme(scheme)
+        .build()
         .await?;
 
-    let data = Arc::new(ctx.data().clone());
-    let res = dream_handler(data, &prompt).await;
+    let cluster = Arc::new(cluster);
 
-    match res {
-        Ok(image) => {
-            let mut embed = CreateEmbed::default();
-            embed
-                .title("✅ Request Completed")
-                .image(image)
-                .field("Prompt", &prompt, false);
+    // Start up the cluster
+    let cluster_spawn = cluster.clone();
 
-            thread
-                .edit(ctx, |f| {
-                    *f = CreateReply {
-                        content: Some("".to_string()),
-                        embeds: vec![embed],
-                        ..Default::default()
-                    };
-                    f
-                })
-                .await
-                .unwrap();
-        }
-        Err(err) => unified_error(ctx, &thread, &err.to_string()).await,
+    tokio::spawn(async move {
+        cluster_spawn.up().await;
+    });
+
+    // The http client is seperate from the gateway, so startup a new
+    // one, also use Arc such that it can be cloned to other threads.
+    let http = Arc::new(HttpClient::new(token));
+
+    let application_id = http
+        .current_user_application()
+        .exec()
+        .await?
+        .model()
+        .await?
+        .id;
+
+    let interaction_client = http.interaction(application_id);
+
+    interaction_client
+        .set_global_commands(&command_definitions())
+        .exec()
+        .await?
+        .models()
+        .await?;
+
+    // Since we only care about messages, make the cache only process messages.
+    let cache = InMemoryCache::builder()
+        .resource_types(ResourceType::MESSAGE)
+        .build();
+
+    // Startup an event loop to process each event in the event stream as they
+    // come in.
+    while let Some((_, event)) = events.next().await {
+        // Update the cache.
+        cache.update(&event);
+
+        // Spawn a new task to handle the event
+        tokio::spawn(handle_event(event, application_id, Arc::clone(&http)));
     }
+
     Ok(())
 }
 
-/// Displays your or another user's account creation date
-async fn dream_handler(data: Arc<Data>, prompt: &String) -> Result<String, Error> {
-    let response = dream_request(&data, prompt).await?;
+async fn handle_event(
+    event: Event,
+    application_id: Id<ApplicationMarker>,
+    http: Arc<HttpClient>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if let Event::InteractionCreate(i) = event {
+        handle_interaction(i.0, application_id, http).await;
+    }
 
-    let result = response.json::<serde_json::Value>().await?;
-    let id = result["id"]
-        .as_str()
-        .ok_or("Response object did not contain an id")?
-        .to_string();
-
-    let poll = tokio::spawn({
-        async move {
-            loop {
-                let status = dream_check(&data, &id).await.unwrap();
-                let result = status.json::<serde_json::Value>().await.unwrap();
-                let status = result["status"].as_str().unwrap();
-
-                if status == "succeeded" {
-                    return result["output"][0].as_str().unwrap().to_string();
-                }
-
-                sleep(Duration::from_secs(2)).await;
-            }
-        }
-    });
-
-    poll.await
-        .map_err(|_| Err::<_, String>("Error...".into()).unwrap())
-}
-
-#[tokio::main]
-async fn main() {
-    dotenv().ok();
-
-    // Use `Framework::builder()` to create a framework builder and supply basic data to the framework:
-    poise::Framework::builder()
-        .token(std::env::var("DISCORD_TOKEN").expect("missing DISCORD_TOKEN in .env"))
-        .intents(serenity::GatewayIntents::non_privileged())
-        .user_data_setup(move |ctx, _ready, framework| {
-            Box::pin(async move {
-                // construct user data here (invoked when bot connects to Discord)
-                let commands = &framework.options().commands;
-                let create_commands = poise::builtins::create_application_commands(commands);
-
-                serenity::Command::set_global_application_commands(ctx.http(), |b| {
-                    *b = create_commands;
-                    b
-                })
-                .await?;
-
-                Ok(Data {
-                    client: reqwest::Client::new(),
-                    replicate_token: std::env::var("REPLICATE_TOKEN")
-                        .expect("missing REPLICATE_TOKEN in .env"),
-                    stable_version: std::env::var("STABLE_VERSION")
-                        .expect("missing STABLE_VERSION in .env"),
-                })
-            })
-        })
-        .options(poise::FrameworkOptions {
-            commands: vec![dream()],
-            ..Default::default()
-        })
-        .run()
-        .await
-        .unwrap();
+    Ok(())
 }
