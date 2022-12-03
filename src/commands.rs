@@ -1,6 +1,6 @@
-use std::sync::Arc;
-
-use twilight_http::Client;
+use async_trait::async_trait;
+use reqwest::Client as ReqwestClient;
+use twilight_http::Client as TwilightClient;
 use twilight_model::{
     application::{
         command::Command,
@@ -10,25 +10,44 @@ use twilight_model::{
 };
 
 mod dream;
+mod info;
 
-pub fn command_definitions() -> Vec<Command> {
-    vec![dream::command_definition()]
+pub struct CommandDelegateData {
+    pub reqwest_client: ReqwestClient,
+    pub twilight_client: TwilightClient,
 }
 
-pub async fn handle_interaction(
-    interaction: Interaction,
-    application_id: Id<ApplicationMarker>,
-    http: Arc<Client>,
-) {
-    let interaction_client = http.interaction(application_id);
-    match interaction.data.clone() {
-        Some(data) => match data {
-            InteractionData::ApplicationCommand(cmd) => match cmd.name.as_str() {
-                "dream" => dream::handle_command(interaction_client, interaction, cmd).await,
-                _ => {}
-            },
-            _ => todo!(),
-        },
-        None => todo!(),
+#[async_trait]
+pub trait CommandDelegate {
+    fn command_definitions(&self) -> Vec<Command>;
+    async fn handle_interaction(
+        &self,
+        interaction: Interaction,
+        application_id: Id<ApplicationMarker>,
+    );
+}
+
+#[async_trait]
+impl CommandDelegate for CommandDelegateData {
+    fn command_definitions(&self) -> Vec<Command> {
+        vec![dream::command_definition(), info::command_definition()]
+    }
+
+    async fn handle_interaction(
+        &self,
+        interaction: Interaction,
+        application_id: Id<ApplicationMarker>,
+    ) {
+        let interaction_client = self.twilight_client.interaction(application_id);
+        if let Some(ref data) = interaction.data {
+            match data {
+                InteractionData::ApplicationCommand(ref cmd) => match cmd.name.as_str() {
+                    "dream" => dream::handle_command(interaction_client, &interaction, cmd).await,
+                    "info" => info::handle_command(interaction_client, &interaction, cmd).await,
+                    _ => {}
+                },
+                &_ => {}
+            }
+        }
     }
 }

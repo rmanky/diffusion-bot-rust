@@ -1,5 +1,5 @@
-use crate::commands::command_definitions;
-use commands::handle_interaction;
+use crate::commands::CommandDelegateData;
+use commands::CommandDelegate;
 use dotenv::dotenv;
 use futures::stream::StreamExt;
 use std::{env, error::Error, sync::Arc};
@@ -36,18 +36,17 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     let cluster = Arc::new(cluster);
 
-    // Start up the cluster
-    let cluster_spawn = cluster.clone();
-
     tokio::spawn(async move {
-        cluster_spawn.up().await;
+        cluster.up().await;
     });
 
-    // The http client is seperate from the gateway, so startup a new
-    // one, also use Arc such that it can be cloned to other threads.
-    let http = Arc::new(HttpClient::new(token));
+    let command_data = Arc::new(CommandDelegateData {
+        reqwest_client: reqwest::Client::new(),
+        twilight_client: HttpClient::new(token),
+    });
 
-    let application_id = http
+    let application_id = command_data
+        .twilight_client
         .current_user_application()
         .exec()
         .await?
@@ -55,10 +54,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .await?
         .id;
 
-    let interaction_client = http.interaction(application_id);
+    let interaction_client = command_data.twilight_client.interaction(application_id);
 
     interaction_client
-        .set_global_commands(&command_definitions())
+        .set_global_commands(&command_data.command_definitions())
         .exec()
         .await?
         .models()
@@ -76,7 +75,11 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         cache.update(&event);
 
         // Spawn a new task to handle the event
-        tokio::spawn(handle_event(event, application_id, Arc::clone(&http)));
+        tokio::spawn(handle_event(
+            event,
+            application_id,
+            Arc::clone(&command_data),
+        ));
     }
 
     Ok(())
@@ -85,10 +88,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 async fn handle_event(
     event: Event,
     application_id: Id<ApplicationMarker>,
-    http: Arc<HttpClient>,
+    command_data: Arc<CommandDelegateData>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     if let Event::InteractionCreate(i) = event {
-        handle_interaction(i.0, application_id, http).await;
+        command_data.handle_interaction(i.0, application_id).await;
     }
 
     Ok(())

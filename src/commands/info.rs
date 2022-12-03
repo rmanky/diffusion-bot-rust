@@ -5,16 +5,15 @@ use twilight_model::application::interaction::Interaction;
 use twilight_model::http::interaction::{
     InteractionResponse, InteractionResponseData, InteractionResponseType,
 };
-use twilight_util::builder::command::{CommandBuilder, StringBuilder};
+use twilight_util::builder::command::CommandBuilder;
 use twilight_util::builder::embed::EmbedBuilder;
 
 pub fn command_definition() -> Command {
     CommandBuilder::new(
-        "dream",
-        "Create an image with Stable Diffusion",
+        "info",
+        "Display general information about the bot",
         CommandType::ChatInput,
     )
-    .option(StringBuilder::new("prompt", "Prompt for the model to generate").required(true))
     .build()
 }
 
@@ -30,8 +29,8 @@ pub async fn handle_command(
             kind: InteractionResponseType::ChannelMessageWithSource,
             data: Some(InteractionResponseData {
                 embeds: Some(vec![EmbedBuilder::new()
-                    .title("Dream")
-                    .description("This will pass a prompt to Stable Diffusion")
+                    .title("Info")
+                    .description("This is information about the bot")
                     .build()]),
                 ..Default::default()
             }),
@@ -40,16 +39,4 @@ pub async fn handle_command(
     .exec()
     .await
     .ok();
-
-    // sleep(Duration::from_secs(3)).await;
-
-    // http.update_response(&interaction.token)
-    //     .embeds(Some(&[EmbedBuilder::new()
-    //         .title("Dream")
-    //         .description("Or is it?")
-    //         .build()]))
-    //     .unwrap()
-    //     .exec()
-    //     .await
-    //     .ok();
 }
