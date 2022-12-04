@@ -46,7 +46,12 @@ pub trait CommandDelegate {
 #[async_trait]
 impl CommandDelegate for CommandDelegateData {
     fn command_definitions(&self) -> Vec<Command> {
-        vec![DreamCommand::create_command().into()]
+        [
+            DreamCommand::create_command(),
+            InfoCommand::create_command(),
+        ]
+        .map(std::convert::Into::into)
+        .to_vec()
     }
 
     async fn handle_interaction(
