@@ -11,7 +11,7 @@ use twilight_util::builder::embed::EmbedBuilder;
 use super::CommandHandler;
 
 #[derive(CommandModel, CreateCommand)]
-#[command(name = "dream", desc = "Display general information about the bot")]
+#[command(name = "info", desc = "Display general information about the bot")]
 pub struct InfoCommand {}
 
 #[async_trait]
