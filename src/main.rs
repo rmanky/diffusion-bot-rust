@@ -48,7 +48,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let application_id = command_data
         .twilight_client
         .current_user_application()
-        .exec()
         .await?
         .model()
         .await?
@@ -58,7 +57,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     interaction_client
         .set_global_commands(&command_data.command_definitions())
-        .exec()
         .await?
         .models()
         .await?;
