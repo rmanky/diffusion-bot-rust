@@ -5,7 +5,7 @@ use twilight_model::http::interaction::{
 };
 use twilight_model::id::marker::InteractionMarker;
 use twilight_model::id::Id;
-use twilight_util::builder::embed::EmbedBuilder;
+use twilight_util::builder::embed::{EmbedBuilder, EmbedFieldBuilder, ImageSource};
 
 use super::{CommandHandler, CommandHandlerData};
 
@@ -30,8 +30,14 @@ impl CommandHandler for InfoCommand {
                     kind: InteractionResponseType::ChannelMessageWithSource,
                     data: Some(InteractionResponseData {
                         embeds: Some(vec![EmbedBuilder::new()
-                            .title("Info")
-                            .description("This will be information about the bot")
+                            .title("Information")
+                            .image(ImageSource::url("https://media4.giphy.com/media/2dK0W3oUksQk0Xz8OK/giphy.gif").unwrap())
+                            .description("The bot can now generate images from multiple Stable Diffusion based models. You do not have to append the style tag to your prompt, simply select a `model` when running the command.")
+                            .color(0x1E88E5)
+                            .field(EmbedFieldBuilder::new("Stable Diffusion v1.5", "The not-latest but still greatest version of Stable Diffusion."))
+                            .field(EmbedFieldBuilder::new("Elden Ring Diffusion", "Stable Diffusion fine tuned on the game art from Elden Ring."))
+                            .field(EmbedFieldBuilder::new("OpenJourney", "Stable Diffusion fine tuned on Midjourney v4."))
+                            .field(EmbedFieldBuilder::new("Arcane Diffusion", "Stable Diffusion fine tuned on Arcane."))
                             .build()]),
                         ..Default::default()
                     }),
