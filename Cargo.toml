@@ -3,6 +3,10 @@ name = "diffusion-bot-rust"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "diffusion-bot-rust"
+path = "src/main.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -19,5 +23,3 @@ twilight-http = "0.14.0"
 twilight-interactions = "0.14.2"
 twilight-model = "0.14.0"
 twilight-util = { version = "0.14.0", features = ["builder"] }
-
-
