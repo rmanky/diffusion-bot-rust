@@ -1,8 +1,12 @@
 use std::env;
+use std::time::{Duration, SystemTime};
 
 use async_trait::async_trait;
+use reqwest::Client;
+use serde::Deserialize;
+use serde_json::json;
+use twilight_http::client::InteractionClient;
 use twilight_interactions::command::{CommandModel, CommandOption, CreateCommand, CreateOption};
-use twilight_model::http::attachment::Attachment;
 use twilight_model::http::interaction::{
     InteractionResponse, InteractionResponseData, InteractionResponseType,
 };
@@ -13,28 +17,48 @@ use twilight_util::builder::embed::{EmbedBuilder, EmbedFieldBuilder, ImageSource
 use super::{CommandHandler, CommandHandlerData};
 
 #[derive(CommandOption, CreateOption)]
-enum TimeUnit {
+enum DiffusionModel {
     #[option(
         name = "Stable Diffusion 1.5",
-        value = "runwayml/stable-diffusion-v1-5"
+        value = "27b93a2413e7f36cd83da926f3656280b2931564ff050bf9575f1fdf9bcd7478"
     )]
     SD15,
     #[option(
-        name = "Elden Ring Diffusion [elden ring style]",
-        value = "nitrosocke/elden-ring-diffusion"
+        name = "Elden Ring Diffusion",
+        value = "983bec81934c199eac56178cd545e007cf931b6dc90e4c4a6f06378eedca9c1e"
     )]
     Elden,
-    #[option(name = "Anything V3", value = "Linaqruf/anything-v3.0")]
-    Anything,
+    #[option(
+        name = "OpenJourney",
+        value = "9936c2001faa2194a261c01381f90e65261879985476014a0a37a334593a05eb"
+    )]
+    OpenJourney,
+    #[option(
+        name = "Arcane Diffusion",
+        value = "a8cd5deb8f36f64f267aa7ed57fce5fc7e1761996f0d81eadd43b3ec99949b70"
+    )]
+    ArcaneDiffusion,
 }
 
 #[derive(CommandModel, CreateCommand)]
 #[command(name = "dream", desc = "Create an image with Stable Diffusion")]
 pub struct DreamCommand {
-    #[command(desc = "Prompt for the model to generate")]
+    /// Prompt for the model to generate
     prompt: String,
-    #[command(desc = "Pre-trained weights for the model to use")]
-    model: Option<TimeUnit>,
+    /// Define pre-trained weights for the model
+    model: Option<DiffusionModel>,
+}
+
+#[derive(Deserialize)]
+struct ReplicateSubmit {
+    id: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct ReplicatePoll {
+    logs: String,
+    status: String,
+    output: Option<Vec<String>>,
 }
 
 #[async_trait]
@@ -48,6 +72,23 @@ impl CommandHandler for DreamCommand {
         let interaction_client = command_handler_data.interaction_client;
         let reqwest_client = command_handler_data.reqwest_client;
 
+        let (style, version) = match &self.model {
+            Some(m) => match m {
+                DiffusionModel::SD15 => ("", DiffusionModel::SD15.value()),
+                DiffusionModel::Elden => ("elden ring style", DiffusionModel::Elden.value()),
+                DiffusionModel::OpenJourney => ("mdjrny-v4 style", DiffusionModel::SD15.value()),
+                DiffusionModel::ArcaneDiffusion => {
+                    ("arcane style", DiffusionModel::ArcaneDiffusion.value())
+                }
+            },
+            None => ("", DiffusionModel::SD15.value()),
+        };
+
+        let mut prompt = self.prompt.to_owned();
+        if !style.is_empty() {
+            prompt = format!("{}, {}", prompt, style);
+        }
+
         interaction_client
             .create_response(
                 interaction_id,
@@ -56,9 +97,9 @@ impl CommandHandler for DreamCommand {
                     kind: InteractionResponseType::ChannelMessageWithSource,
                     data: Some(InteractionResponseData {
                         embeds: Some(vec![EmbedBuilder::new()
-                            .title("Processing")
-                            .color(0x5E35B1)
-                            .field(EmbedFieldBuilder::new("Prompt", &self.prompt))
+                            .title("Submitting")
+                            .color(0xF4511E)
+                            .field(EmbedFieldBuilder::new("Prompt", &prompt))
                             .build()]),
                         ..Default::default()
                     }),
@@ -67,58 +108,187 @@ impl CommandHandler for DreamCommand {
             .await
             .ok();
 
-        let result = reqwest_client
-            .post(format!(
-                "https://api-inference.huggingface.co/models/{}",
-                &self.model.as_ref().unwrap_or(&TimeUnit::SD15).value()
-            ))
-            .header(
-                "Authorization",
-                format!("Bearer {}", env::var("HUGGINGFACE_TOKEN").unwrap()),
-            )
-            .header("x-use-cache", "false")
-            .body(format!("{{\"inputs\":\"{}\"}}", &self.prompt))
-            .send()
-            .await
-            .ok();
-
-        if let Some(image) = result {
-            if let Ok(image_bytes) = image.bytes().await {
+        match dream(
+            &reqwest_client,
+            prompt.as_str(),
+            version,
+            &interaction_client,
+            interaction_token,
+        )
+        .await
+        {
+            Ok(_) => return,
+            Err(e) => {
                 interaction_client
                     .update_response(interaction_token)
                     .embeds(Some(&[EmbedBuilder::new()
-                        .title("Completed")
-                        .color(0x43A047)
-                        .field(EmbedFieldBuilder::new("Prompt", &self.prompt))
-                        .image(ImageSource::attachment("image.png").unwrap())
+                        .title("Failed")
+                        .color(0xE53935)
+                        .field(EmbedFieldBuilder::new("Error", format!("`{}`", e.message)))
                         .build()]))
-                    .unwrap()
-                    .attachments(&[Attachment::from_bytes(
-                        "image.png".to_string(),
-                        image_bytes.to_vec(),
-                        0,
-                    )])
                     .unwrap()
                     .await
                     .ok();
-
-                return;
             }
         }
+    }
+}
+
+struct DreamError {
+    message: String,
+}
+
+async fn dream(
+    reqwest_client: &Client,
+    prompt: &str,
+    version: &str,
+    interaction_client: &InteractionClient<'_>,
+    interaction_token: &str,
+) -> Result<(), DreamError> {
+    let submit_request = reqwest_client
+        .post("https://api.replicate.com/v1/predictions")
+        .header(
+            "Authorization",
+            format!("Token {}", env::var("REPLICATE_TOKEN").unwrap()),
+        )
+        .body(
+            json!({
+                "version": version,
+                "input": {
+                    "prompt": prompt,
+                    "width": 512,
+                    "height": 512,
+                    "num_inference_steps": 40
+                }
+            })
+            .to_string(),
+        )
+        .send()
+        .await;
+
+    let submit_response = match submit_request {
+        Ok(r) => match r.json::<ReplicateSubmit>().await {
+            Ok(j) => j,
+            Err(e) => {
+                return Err(DreamError {
+                    message: format!("{:#?}", e),
+                })
+            }
+        },
+        Err(e) => {
+            return Err(DreamError {
+                message: format!("{:#?}", e),
+            })
+        }
+    };
+
+    let start = SystemTime::now();
+    let mut wait_time = 1000;
+
+    loop {
+        tokio::time::sleep(Duration::from_millis(wait_time)).await;
+
+        let poll_request = reqwest_client
+            .get(format!(
+                "https://api.replicate.com/v1/predictions/{}",
+                submit_response.id
+            ))
+            .header(
+                "Authorization",
+                format!("Token {}", env::var("REPLICATE_TOKEN").unwrap()),
+            )
+            .send()
+            .await;
+
+        let poll_response = match poll_request {
+            Ok(r) => match r.json::<ReplicatePoll>().await {
+                Ok(j) => j,
+                Err(_) => continue,
+            },
+            Err(e) => {
+                return Err(DreamError {
+                    message: format!("{:#?}", e),
+                })
+            }
+        };
+
+        let last_log = match poll_response.logs.split('\n').last() {
+            Some(l) => l,
+            None => {
+                return Err(DreamError {
+                    message: "The logs did not have a last line".to_string(),
+                })
+            }
+        };
+
+        wait_time = 250;
 
         interaction_client
+            .update_response(interaction_token)
+            .embeds(Some(&[EmbedBuilder::new()
+                .title("Pending")
+                .color(0x5E35B1)
+                .field(EmbedFieldBuilder::new("Prompt", prompt))
+                .field(EmbedFieldBuilder::new("Status", &poll_response.status))
+                .field(EmbedFieldBuilder::new(
+                    "Last Log",
+                    format!("`{}`", last_log),
+                ))
+                .build()]))
+            .unwrap()
+            .await
+            .ok();
+
+        if poll_response.status == "succeeded" {
+            let image = match &poll_response.output {
+                Some(v) => match v.first() {
+                    Some(u) => match ImageSource::url(u) {
+                        Ok(i) => i,
+                        Err(e) => {
+                            return Err(DreamError {
+                                message: format!("{:#?}", e),
+                            })
+                        }
+                    },
+                    None => {
+                        return Err(DreamError {
+                            message: "The image list was present but empty".to_string(),
+                        })
+                    }
+                },
+                None => {
+                    return Err(DreamError {
+                        message: "The image list was missing".to_string(),
+                    })
+                }
+            };
+
+            interaction_client
                 .update_response(interaction_token)
                 .embeds(Some(&[EmbedBuilder::new()
-                    .title("Failed")
-                    .color(0xE53935)
-                    .field(EmbedFieldBuilder::new("Prompt", &self.prompt))
-                    .field(EmbedFieldBuilder::new(
-                        "Error",
-                        "An error has occurred, but Rust is hard and I haven't figured out error handling yet"
-                    ))
+                    .title("Completed")
+                    .color(0x43A047)
+                    .field(EmbedFieldBuilder::new("Prompt", prompt))
+                    .image(image)
                     .build()]))
                 .unwrap()
                 .await
                 .ok();
+            return Ok(());
+        } else if poll_response.status == "failed" {
+            return Err(DreamError {
+                message: last_log.to_string(),
+            });
+        }
+
+        let since_start = SystemTime::now()
+            .duration_since(start)
+            .expect("Time went backwards");
+
+        if since_start.as_secs() > 90 {
+            return Err(DreamError {
+                message: "The command timed out after 90 seconds".to_string(),
+            });
+        }
     }
 }
