@@ -54,7 +54,7 @@ struct ReplicateSubmit {
     id: String,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 struct ReplicatePoll {
     logs: String,
     status: String,
