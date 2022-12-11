@@ -12,7 +12,9 @@ use twilight_model::http::interaction::{
 };
 use twilight_model::id::marker::InteractionMarker;
 use twilight_model::id::Id;
-use twilight_util::builder::embed::{EmbedBuilder, EmbedFieldBuilder, ImageSource};
+use twilight_util::builder::embed::{
+    EmbedBuilder, EmbedFieldBuilder, EmbedFooterBuilder, ImageSource,
+};
 
 use super::{CommandHandler, CommandHandlerData};
 
@@ -35,7 +37,7 @@ enum DiffusionModel {
     OpenJourney,
     #[option(
         name = "Arcane Diffusion",
-        value = "a8cd5deb8f36f64f267aa7ed57fce5fc7e1761996f0d81eadd43b3ec99949b70"
+        value = "1f4cdaee82b13c1f92706a211f55d92d7ee87b13e2c2ba6b998a7817ffc5017f"
     )]
     ArcaneDiffusion,
 }
@@ -182,11 +184,32 @@ async fn dream(
         }
     };
 
+    interaction_client
+        .update_response(interaction_token)
+        .embeds(Some(&[EmbedBuilder::new()
+            .title("Submitted")
+            .color(0x00897B)
+            .field(EmbedFieldBuilder::new("Prompt", prompt))
+            .footer(EmbedFooterBuilder::new(&submit_response.id))
+            .build()]))
+        .unwrap()
+        .await
+        .ok();
+
     let start = SystemTime::now();
-    let mut wait_time = 1000;
 
     loop {
-        tokio::time::sleep(Duration::from_millis(wait_time)).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        let since_start = SystemTime::now()
+            .duration_since(start)
+            .expect("Time went backwards");
+
+        if since_start.as_secs() > 90 {
+            return Err(DreamError {
+                message: "The command timed out after 90 seconds".to_string(),
+            });
+        }
 
         let poll_request = reqwest_client
             .get(format!(
@@ -213,15 +236,13 @@ async fn dream(
         };
 
         let last_log = match poll_response.logs.split('\n').last() {
-            Some(l) => l,
+            Some(log) => log,
             None => {
                 return Err(DreamError {
-                    message: "The logs did not have a last line".to_string(),
+                    message: "Failed to retrieve the last line from the logs".to_string(),
                 })
             }
         };
-
-        wait_time = 250;
 
         interaction_client
             .update_response(interaction_token)
@@ -234,6 +255,7 @@ async fn dream(
                     "Last Log",
                     format!("`{}`", last_log),
                 ))
+                .footer(EmbedFooterBuilder::new(&submit_response.id))
                 .build()]))
             .unwrap()
             .await
@@ -270,6 +292,7 @@ async fn dream(
                     .color(0x43A047)
                     .field(EmbedFieldBuilder::new("Prompt", prompt))
                     .image(image)
+                    .footer(EmbedFooterBuilder::new(&submit_response.id))
                     .build()]))
                 .unwrap()
                 .await
@@ -278,16 +301,6 @@ async fn dream(
         } else if poll_response.status == "failed" {
             return Err(DreamError {
                 message: last_log.to_string(),
-            });
-        }
-
-        let since_start = SystemTime::now()
-            .duration_since(start)
-            .expect("Time went backwards");
-
-        if since_start.as_secs() > 90 {
-            return Err(DreamError {
-                message: "The command timed out after 90 seconds".to_string(),
             });
         }
     }
