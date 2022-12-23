@@ -26,6 +26,11 @@ enum DiffusionModel {
     )]
     SD15,
     #[option(
+        name = "Anything V3.0",
+        value = "f410ed4c6a0c3bf8b76747860b3a3c9e4c8b5a827a16eac9dd5ad9642edce9a2"
+    )]
+    AnythingV3,
+    #[option(
         name = "Elden Ring Diffusion",
         value = "983bec81934c199eac56178cd545e007cf931b6dc90e4c4a6f06378eedca9c1e"
     )]
@@ -77,6 +82,7 @@ impl CommandHandler for DreamCommand {
         let (style, version) = match &self.model {
             Some(m) => match m {
                 DiffusionModel::SD15 => ("", DiffusionModel::SD15.value()),
+                DiffusionModel::AnythingV3 => ("", DiffusionModel::AnythingV3.value()),
                 DiffusionModel::Elden => ("elden ring style", DiffusionModel::Elden.value()),
                 DiffusionModel::OpenJourney => ("mdjrny-v4 style", DiffusionModel::SD15.value()),
                 DiffusionModel::ArcaneDiffusion => {
