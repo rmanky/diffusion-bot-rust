@@ -33,14 +33,7 @@ impl CommandHandler for InfoCommand {
                             .title("Information")
                             .image(ImageSource::url("https://i.imgur.com/oKD9D5c.png").unwrap())
                             .description(
-                                r#"
-                                Welcome to Anything V3.0 - a latent diffusion model for weebs.
-                                
-                                Example prompt:
-                                ```
-                                1girl, white hair, golden eyes, beautiful eyes, detail, flower meadow, cumulonimbus clouds, lighting, detailed sky, garden
-                                ```
-                                "#
+                                "Welcome to Anything V3.0 - a latent diffusion model for weebs.",
                             )
                             .color(0x1E88E5)
                             .build()]),
