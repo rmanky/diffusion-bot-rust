@@ -205,7 +205,7 @@ async fn dream(
     let start = SystemTime::now();
 
     loop {
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
 
         let since_start = SystemTime::now()
             .duration_since(start)
