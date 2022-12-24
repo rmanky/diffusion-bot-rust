@@ -13,9 +13,10 @@ use twilight_model::{
     },
 };
 
-use self::{dream::DreamCommand, info::InfoCommand};
+use self::{dream::DreamCommand, horde::HordeCommand, info::InfoCommand};
 
 mod dream;
+mod horde;
 mod info;
 
 pub struct CommandHandlerData<'a> {
@@ -52,6 +53,7 @@ pub trait CommandDelegate {
 impl CommandDelegate for CommandDelegateData {
     fn command_definitions(&self) -> Vec<Command> {
         [
+            HordeCommand::create_command(),
             DreamCommand::create_command(),
             InfoCommand::create_command(),
         ]
@@ -70,6 +72,19 @@ impl CommandDelegate for CommandDelegateData {
                 reqwest_client: self.reqwest_client.to_owned(),
             };
             match command_data.name.as_str() {
+                "horde" => {
+                    if let Ok(horde_command) =
+                        HordeCommand::from_interaction((*command_data).into())
+                    {
+                        horde_command
+                            .handle_command(
+                                command_handler_data,
+                                interaction.id,
+                                &interaction.token,
+                            )
+                            .await
+                    }
+                }
                 "dream" => {
                     if let Ok(dream_command) =
                         DreamCommand::from_interaction((*command_data).into())

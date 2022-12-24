@@ -132,6 +132,7 @@ impl CommandHandler for DreamCommand {
                     .embeds(Some(&[EmbedBuilder::new()
                         .title("Failed")
                         .color(0xE53935)
+                        .field(EmbedFieldBuilder::new("Prompt", &prompt))
                         .field(EmbedFieldBuilder::new("Error", format!("`{}`", e.message)))
                         .build()]))
                     .unwrap()

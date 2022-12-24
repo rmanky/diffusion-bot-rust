@@ -5,7 +5,7 @@ use twilight_model::http::interaction::{
 };
 use twilight_model::id::marker::InteractionMarker;
 use twilight_model::id::Id;
-use twilight_util::builder::embed::{EmbedBuilder, EmbedFieldBuilder, ImageSource};
+use twilight_util::builder::embed::{EmbedBuilder, ImageSource};
 
 use super::{CommandHandler, CommandHandlerData};
 
@@ -30,10 +30,15 @@ impl CommandHandler for InfoCommand {
                     kind: InteractionResponseType::ChannelMessageWithSource,
                     data: Some(InteractionResponseData {
                         embeds: Some(vec![EmbedBuilder::new()
-                            .title("Information")
-                            .image(ImageSource::url("https://i.imgur.com/oKD9D5c.png").unwrap())
+                            .title("Victory, or death.")
+                            .image(
+                                ImageSource::url(
+                                    "https://thumbs.gfycat.com/AggressiveAppropriateKestrel-size_restricted.gif",
+                                )
+                                .unwrap(),
+                            )
                             .description(
-                                "Welcome to Anything V3.0 - a latent diffusion model for weebs.",
+                                "`/horde` is back, now ~~better than~~ _the same as_ ~~ever~~ _before_. In an attempt to cleanup code, I've somehow added ~100 extra lines compared to the Replicate version!",
                             )
                             .color(0x1E88E5)
                             .build()]),

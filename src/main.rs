@@ -1,16 +1,21 @@
 use crate::commands::CommandDelegateData;
+use activity::get_random_activity;
 use commands::CommandDelegate;
 use dotenv::dotenv;
 use futures::stream::StreamExt;
-use std::{env, error::Error, sync::Arc};
+use std::{env, error::Error, sync::Arc, time::Duration};
 use twilight_cache_inmemory::{InMemoryCache, ResourceType};
 use twilight_gateway::{
     cluster::{Cluster, ShardScheme},
     Event, Intents,
 };
 use twilight_http::Client as HttpClient;
-use twilight_model::id::{marker::ApplicationMarker, Id};
+use twilight_model::{
+    gateway::{payload::outgoing::UpdatePresence, presence::Status},
+    id::{marker::ApplicationMarker, Id},
+};
 
+mod activity;
 mod commands;
 
 #[tokio::main]
@@ -38,6 +43,36 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     tokio::spawn(async move {
         cluster.up().await;
+
+        // Wait 10 seconds for the shard to start
+        tokio::time::sleep(Duration::from_secs(10)).await;
+
+        loop {
+            let activity = vec![get_random_activity()];
+
+            let update_preference = UpdatePresence::new(activity, false, None, Status::Online);
+
+            's: for shard in cluster.shards() {
+                let info = match shard.info() {
+                    Ok(i) => i,
+                    Err(_) => {
+                        eprintln!("Session is not yet active!");
+                        break 's;
+                    }
+                };
+
+                let update_command = match &update_preference {
+                    Ok(c) => c,
+                    Err(_) => {
+                        eprintln!("Failed to update presence!");
+                        break 's;
+                    }
+                };
+
+                cluster.command(info.id(), update_command).await.ok();
+            }
+            tokio::time::sleep(Duration::from_secs(1800)).await;
+        }
     });
 
     let command_data = Arc::new(CommandDelegateData {
