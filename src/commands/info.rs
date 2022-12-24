@@ -33,7 +33,7 @@ impl CommandHandler for InfoCommand {
                             .title("Victory, or death.")
                             .image(
                                 ImageSource::url(
-                                    "https://thumbs.gfycat.com/AggressiveAppropriateKestrel-size_restricted.gif",
+                                    "https://i.imgur.com/iyU2gEz.gif",
                                 )
                                 .unwrap(),
                             )
