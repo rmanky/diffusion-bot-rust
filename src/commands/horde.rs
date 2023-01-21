@@ -34,8 +34,6 @@ enum DiffusionModel {
     SD15,
     #[option(name = "Anything V3.0", value = "Anything Diffusion")]
     AnythingV3,
-    #[option(name = "Dreamlike Diffusion", value = "Dreamlike Diffusion")]
-    Dreamlike,
 }
 
 #[derive(CommandModel, CreateCommand)]
@@ -60,6 +58,7 @@ struct HordeSubmit<'a> {
     nsfw: bool,
     censor_nsfw: bool,
     models: Vec<&'a str>,
+    r2: bool,
 }
 
 #[derive(Deserialize)]
@@ -98,32 +97,16 @@ impl CommandHandler for HordeCommand {
         let interaction_client = command_handler_data.interaction_client;
         let reqwest_client = command_handler_data.reqwest_client;
 
-        let (style, model_name, model_version) = match &self.model {
+        let (model_name, model_version) = match &self.model {
             Some(m) => match m {
-                DiffusionModel::SD21 => {
-                    ("", "Stable Diffusion [2.1]", DiffusionModel::SD21.value())
-                }
-                DiffusionModel::SD15 => {
-                    ("", "Stable Diffusion [1.5]", DiffusionModel::SD15.value())
-                }
-                DiffusionModel::AnythingV3 => {
-                    ("", "Anything V3.0", DiffusionModel::AnythingV3.value())
-                }
-                DiffusionModel::Dreamlike => (
-                    "dreamlikeart",
-                    "Dreamlike Diffusion",
-                    DiffusionModel::Dreamlike.value(),
-                ),
+                DiffusionModel::SD21 => ("Stable Diffusion [2.1]", DiffusionModel::SD21.value()),
+                DiffusionModel::SD15 => ("Stable Diffusion [1.5]", DiffusionModel::SD15.value()),
+                DiffusionModel::AnythingV3 => ("Anything V3.0", DiffusionModel::AnythingV3.value()),
             },
-            None => ("", "Stable Diffusion [1.5]", DiffusionModel::SD15.value()),
+            None => ("Stable Diffusion [1.5]", DiffusionModel::SD15.value()),
         };
 
-        let mod_prompt = if !style.is_empty() {
-            format!("{}, {}", &self.prompt, style)
-        } else {
-            self.prompt.to_string()
-        };
-        let prompt = mod_prompt.as_str();
+        let prompt = &self.prompt;
 
         interaction_client
             .create_response(
@@ -201,11 +184,12 @@ async fn horde(
                 prompt,
                 params: HordeParams {
                     sampler_name: "k_euler_a",
-                    steps: 50,
+                    steps: 48,
                 },
                 nsfw: false,
                 censor_nsfw: true,
                 models: vec![model_version],
+                r2: false
             })
             .to_string(),
         )

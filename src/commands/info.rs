@@ -30,17 +30,17 @@ impl CommandHandler for InfoCommand {
                     kind: InteractionResponseType::ChannelMessageWithSource,
                     data: Some(InteractionResponseData {
                         embeds: Some(vec![EmbedBuilder::new()
-                            .title("Victory, or death.")
+                            .title("Justice.")
                             .image(
                                 ImageSource::url(
-                                    "https://i.imgur.com/iyU2gEz.gif",
+                                    "https://media3.giphy.com/media/B4jfJqiIxvU08/giphy.gif",
                                 )
                                 .unwrap(),
                             )
                             .description(
-                                "`/horde` is back, now ~~better than~~ _the same as_ ~~ever~~ _before_. In an attempt to cleanup code, I've somehow added ~100 extra lines compared to the Replicate version!",
+                                "_\"Madness is the emergency exit. You can just step outside, and close the door on all those dreadful things that happened. You can lock them away... forever.\"_",
                             )
-                            .color(0x1E88E5)
+                            .color(0xff6a00)
                             .build()]),
                         ..Default::default()
                     }),

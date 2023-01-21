@@ -32,7 +32,7 @@ enum DiffusionModel {
     AnythingV3,
     #[option(
         name = "Elden Ring Diffusion",
-        value = "983bec81934c199eac56178cd545e007cf931b6dc90e4c4a6f06378eedca9c1e"
+        value = "03963421baa88bf6de8c30b357bf68b3964a56a9160a40a0448cd1d39607d836"
     )]
     Elden,
     #[option(
@@ -42,7 +42,7 @@ enum DiffusionModel {
     OpenJourney,
     #[option(
         name = "Arcane Diffusion",
-        value = "1f4cdaee82b13c1f92706a211f55d92d7ee87b13e2c2ba6b998a7817ffc5017f"
+        value = "4cbb3f91f9ba049151efb8922fdecc6703d419ea682b87ff94c5876addabfb19"
     )]
     ArcaneDiffusion,
 }
