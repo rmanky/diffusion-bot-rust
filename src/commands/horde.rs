@@ -396,7 +396,7 @@ fn embed_with_prompt_and_model(
     color: u32,
     prompt: &str,
     model_name: &str,
-    nsfw: bool,
+    _nsfw: bool,
 ) -> EmbedBuilder {
     EmbedBuilder::new()
         .title(title)
