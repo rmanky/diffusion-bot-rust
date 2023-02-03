@@ -41,6 +41,8 @@ enum DiffusionModel {
 pub struct HordeCommand {
     /// Prompt for the model to generate
     prompt: String,
+    /// Enable NSFW generation in a NSFW channel
+    nsfw: Option<bool>,
     /// Define pre-trained weights for the model
     model: Option<DiffusionModel>,
 }
@@ -108,6 +110,9 @@ impl CommandHandler for HordeCommand {
 
         let prompt = &self.prompt;
 
+        let nsfw =
+            self.nsfw.unwrap_or_default() && command_handler_data.channel.nsfw.unwrap_or_default();
+
         interaction_client
             .create_response(
                 interaction_id,
@@ -120,6 +125,7 @@ impl CommandHandler for HordeCommand {
                             0xF4511E,
                             prompt,
                             model_name,
+                            nsfw,
                         )
                         .build()]),
                         ..Default::default()
@@ -134,6 +140,7 @@ impl CommandHandler for HordeCommand {
             prompt,
             model_name,
             model_version,
+            nsfw,
             &interaction_client,
             interaction_token,
         )
@@ -144,7 +151,7 @@ impl CommandHandler for HordeCommand {
                 interaction_client
                     .update_response(interaction_token)
                     .embeds(Some(&[embed_with_prompt_and_model(
-                        "Failed", 0xE53935, prompt, model_name,
+                        "Failed", 0xE53935, prompt, model_name, nsfw,
                     )
                     .field(EmbedFieldBuilder::new(
                         "Error",
@@ -172,6 +179,7 @@ async fn horde(
     prompt: &str,
     model_name: &str,
     model_version: &str,
+    nsfw: bool,
     interaction_client: &InteractionClient<'_>,
     interaction_token: &str,
 ) -> Result<(), HordeError> {
@@ -186,8 +194,8 @@ async fn horde(
                     sampler_name: "k_euler_a",
                     steps: 48,
                 },
-                nsfw: false,
-                censor_nsfw: true,
+                nsfw: nsfw,
+                censor_nsfw: !nsfw,
                 models: vec![model_version],
                 r2: false
             })
@@ -226,6 +234,7 @@ async fn horde(
             0x00897B,
             prompt,
             model_name,
+            nsfw,
         )
         .footer(EmbedFooterBuilder::new(&id))
         .build()]))
@@ -287,7 +296,7 @@ async fn horde(
             interaction_client
                 .update_response(interaction_token)
                 .embeds(Some(&[embed_with_prompt_and_model(
-                    "Pending", 0x5E35B1, prompt, model_name,
+                    "Pending", 0x5E35B1, prompt, model_name, nsfw,
                 )
                 .field(EmbedFieldBuilder::new(
                     "Status",
@@ -355,6 +364,7 @@ async fn horde(
                 0x43A047,
                 prompt,
                 model_name,
+                nsfw,
             )
             .field(EmbedFieldBuilder::new(
                 "Info",
@@ -386,6 +396,7 @@ fn embed_with_prompt_and_model(
     color: u32,
     prompt: &str,
     model_name: &str,
+    nsfw: bool,
 ) -> EmbedBuilder {
     EmbedBuilder::new()
         .title(title)

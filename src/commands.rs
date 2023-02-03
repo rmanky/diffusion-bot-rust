@@ -7,6 +7,7 @@ use twilight_model::{
         command::Command,
         interaction::{Interaction, InteractionData},
     },
+    channel::Channel,
     id::{
         marker::{ApplicationMarker, InteractionMarker},
         Id,
@@ -20,6 +21,7 @@ mod horde;
 mod info;
 
 pub struct CommandHandlerData<'a> {
+    pub channel: Channel,
     pub reqwest_client: ReqwestClient,
     pub interaction_client: InteractionClient<'a>,
 }
@@ -67,10 +69,23 @@ impl CommandDelegate for CommandDelegateData {
         application_id: Id<ApplicationMarker>,
     ) {
         if let Some(InteractionData::ApplicationCommand(command_data)) = interaction.data {
+            let channel = match interaction.channel_id {
+                Some(v) => match self.twilight_client.channel(v).await {
+                    Ok(c) => match c.model().await {
+                        Ok(m) => m,
+                        Err(_) => return,
+                    },
+                    Err(_) => return,
+                },
+                None => return,
+            };
+
             let command_handler_data = CommandHandlerData {
+                channel,
                 interaction_client: self.twilight_client.interaction(application_id),
                 reqwest_client: self.reqwest_client.to_owned(),
             };
+
             match command_data.name.as_str() {
                 "horde" => {
                     if let Ok(horde_command) =
