@@ -396,11 +396,18 @@ fn embed_with_prompt_and_model(
     color: u32,
     prompt: &str,
     model_name: &str,
-    _nsfw: bool,
+    nsfw: bool,
 ) -> EmbedBuilder {
     EmbedBuilder::new()
         .title(title)
         .color(color)
         .field(EmbedFieldBuilder::new("Prompt", prompt))
         .field(EmbedFieldBuilder::new("Model", model_name))
+        .field(EmbedFieldBuilder::new(
+            "NSFW",
+            match nsfw {
+                true => "True",
+                false => "False",
+            },
+        ))
 }
