@@ -30,17 +30,14 @@ impl CommandHandler for InfoCommand {
                     kind: InteractionResponseType::ChannelMessageWithSource,
                     data: Some(InteractionResponseData {
                         embeds: Some(vec![EmbedBuilder::new()
-                            .title("Justice.")
-                            .image(
-                                ImageSource::url(
-                                    "https://media3.giphy.com/media/B4jfJqiIxvU08/giphy.gif",
-                                )
-                                .unwrap(),
-                            )
+                            .title("Ballsacks")
+                            .image(ImageSource::url("https://i.imgur.com/TezWqZZ.png").unwrap())
                             .description(
-                                "_\"Madness is the emergency exit. You can just step outside, and close the door on all those dreadful things that happened. You can lock them away... forever.\"_",
-                            )
-                            .color(0xff6a00)
+                                r#"Welcome back, NSFW!
+                                - The bot can now generate NSFW images in NSFW channels
+                                - If NSFW is `true` in a non-NSFW channel, it is set to `false` before the request is submitted
+                                - https://www.youtube.com/watch?v=Vvx4b_BvwUY&t=101s"#)
+                            .color(0xC2185B)
                             .build()]),
                         ..Default::default()
                     }),
