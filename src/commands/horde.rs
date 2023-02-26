@@ -47,6 +47,7 @@ pub struct HordeCommand {
     model: Option<DiffusionModel>,
 }
 
+// Submit request
 #[derive(Serialize, Deserialize)]
 struct HordeParams<'a> {
     sampler_name: &'a str,
@@ -61,14 +62,17 @@ struct HordeSubmit<'a> {
     censor_nsfw: bool,
     models: Vec<&'a str>,
     r2: bool,
+    trusted_workers: bool,
 }
 
+// Initial response
 #[derive(Deserialize)]
 struct HordeResponse {
     id: Option<String>,
     message: Option<String>,
 }
 
+// Polling
 #[derive(Deserialize)]
 struct HordePoll {
     done: bool,
@@ -77,15 +81,16 @@ struct HordePoll {
     queue_position: f32,
 }
 
-#[derive(Deserialize)]
-struct HordeFinal {
-    generations: Vec<HordeGeneration>,
-}
-
+// Final generation
 #[derive(Deserialize)]
 struct HordeGeneration {
     worker_name: String,
     img: String,
+}
+
+#[derive(Deserialize)]
+struct HordeFinal {
+    generations: Vec<HordeGeneration>,
 }
 
 #[async_trait]
@@ -110,8 +115,7 @@ impl CommandHandler for HordeCommand {
 
         let prompt = &self.prompt;
 
-        let nsfw =
-            self.nsfw.unwrap_or_default() && command_handler_data.channel.nsfw.unwrap_or_default();
+        let nsfw = self.nsfw.unwrap_or(false) && command_handler_data.channel.nsfw.unwrap_or(false);
 
         interaction_client
             .create_response(
@@ -156,8 +160,7 @@ impl CommandHandler for HordeCommand {
                     .field(EmbedFieldBuilder::new(
                         "Error",
                         format!(
-                            r#"An exception was caught to save the bot from crashing:
-                            `{}`"#,
+                            "An exception was caught to save the bot from crashing:\n`{}`",
                             e.message
                         ),
                     ))
@@ -192,12 +195,13 @@ async fn horde(
                 prompt,
                 params: HordeParams {
                     sampler_name: "k_euler_a",
-                    steps: 48,
+                    steps: 40,
                 },
-                nsfw: nsfw,
+                nsfw,
                 censor_nsfw: !nsfw,
                 models: vec![model_version],
-                r2: false
+                r2: false,
+                trusted_workers: false
             })
             .to_string(),
         )
@@ -242,8 +246,69 @@ async fn horde(
         .await
         .ok();
 
-    let start = SystemTime::now();
+    let generation = poll_status(
+        reqwest_client,
+        &id,
+        prompt,
+        model_name,
+        nsfw,
+        interaction_client,
+        interaction_token,
+    )
+    .await?;
 
+    let image = match base64::decode(generation.img.as_bytes()) {
+        Ok(i) => i,
+        Err(e) => {
+            return Err(HordeError {
+                message: format!("{:#?}", e),
+            })
+        }
+    };
+
+    interaction_client
+        .update_response(interaction_token)
+        .embeds(Some(&[embed_with_prompt_and_model(
+            "Completed",
+            0x43A047,
+            prompt,
+            model_name,
+            nsfw,
+        )
+        .field(EmbedFieldBuilder::new(
+            "Info",
+            format!(
+                "Your request was completed by worker `{}`",
+                generation.worker_name
+            ),
+        ))
+        .image(ImageSource::attachment("image.webp").unwrap())
+        .footer(EmbedFooterBuilder::new(&id))
+        .build()]))
+        .unwrap()
+        .await
+        .ok();
+
+    interaction_client
+        .update_response(interaction_token)
+        .attachments(&[Attachment::from_bytes("image.webp".to_string(), image, 1)])
+        .unwrap()
+        .await
+        .ok();
+
+    Ok(())
+}
+
+async fn poll_status(
+    reqwest_client: &Client,
+    id: &str,
+    prompt: &str,
+    model_name: &str,
+    nsfw: bool,
+    interaction_client: &InteractionClient<'_>,
+    interaction_token: &str,
+) -> Result<HordeGeneration, HordeError> {
+    let start = SystemTime::now();
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;
 
@@ -251,9 +316,9 @@ async fn horde(
             .duration_since(start)
             .expect("Time went backwards");
 
-        if since_start.as_secs() > 120 {
+        if since_start.as_secs() > 180 {
             return Err(HordeError {
-                message: "The command timed out after 2 minutes".to_string(),
+                message: "The command timed out after 3 minutes".to_string(),
             });
         }
 
@@ -301,13 +366,11 @@ async fn horde(
                 .field(EmbedFieldBuilder::new(
                     "Status",
                     format!(
-                        r#"`{:#?}`
-                        Wait time is {} seconds.
-                        Queue position is {}."#,
+                        "**{:#?}**\nWait time is {} seconds.\nQueue position is {}.",
                         status, poll_response.wait_time, poll_response.queue_position
                     ),
                 ))
-                .footer(EmbedFooterBuilder::new(&id))
+                .footer(EmbedFooterBuilder::new(id))
                 .build()]))
                 .unwrap()
                 .await
@@ -323,9 +386,9 @@ async fn horde(
             .send()
             .await;
 
-        let final_response = match final_request {
+        let mut final_response = match final_request {
             Ok(r) => match r.json::<HordeFinal>().await {
-                Ok(j) => j,
+                Ok(f) => f,
                 Err(e) => {
                     return Err(HordeError {
                         message: format!("{:#?}", e),
@@ -339,55 +402,14 @@ async fn horde(
             }
         };
 
-        let generation = match final_response.generations.get(0) {
-            Some(g) => g,
+        return match final_response.generations.pop() {
+            Some(g) => Ok(g),
             None => {
                 return Err(HordeError {
                     message: "The list of generated images was empty".to_string(),
                 })
             }
         };
-
-        let image = match base64::decode(generation.img.as_bytes()) {
-            Ok(i) => i,
-            Err(e) => {
-                return Err(HordeError {
-                    message: format!("{:#?}", e),
-                })
-            }
-        };
-
-        interaction_client
-            .update_response(interaction_token)
-            .embeds(Some(&[embed_with_prompt_and_model(
-                "Completed",
-                0x43A047,
-                prompt,
-                model_name,
-                nsfw,
-            )
-            .field(EmbedFieldBuilder::new(
-                "Info",
-                format!(
-                    "Your request was completed by worker `{}`",
-                    generation.worker_name
-                ),
-            ))
-            .image(ImageSource::attachment("image.webp").unwrap())
-            .footer(EmbedFooterBuilder::new(&id))
-            .build()]))
-            .unwrap()
-            .await
-            .ok();
-
-        interaction_client
-            .update_response(interaction_token)
-            .attachments(&[Attachment::from_bytes("image.webp".to_string(), image, 1)])
-            .unwrap()
-            .await
-            .ok();
-
-        return Ok(());
     }
 }
 
