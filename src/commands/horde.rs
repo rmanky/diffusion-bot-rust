@@ -93,6 +93,11 @@ struct HordeFinal {
     generations: Vec<HordeGeneration>,
 }
 
+// Error handling
+struct HordeError {
+    message: String,
+}
+
 #[async_trait]
 impl CommandHandler for HordeCommand {
     async fn handle_command(
@@ -171,10 +176,6 @@ impl CommandHandler for HordeCommand {
             }
         }
     }
-}
-
-struct HordeError {
-    message: String,
 }
 
 async fn horde(
