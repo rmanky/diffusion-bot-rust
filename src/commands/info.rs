@@ -30,13 +30,16 @@ impl CommandHandler for InfoCommand {
                     kind: InteractionResponseType::ChannelMessageWithSource,
                     data: Some(InteractionResponseData {
                         embeds: Some(vec![EmbedBuilder::new()
-                            .title("Ballsacks")
-                            .image(ImageSource::url("https://i.imgur.com/TezWqZZ.png").unwrap())
+                            .title("Stable Diffusion, Now Extra Large!")
+                            .image(ImageSource::url("https://mma.prnewswire.com/media/1921904/Stability_AI_logo_Logo.jpg").unwrap())
                             .description(
-                                r#"Welcome back, NSFW!
-                                - The bot can now generate NSFW images in NSFW channels
-                                - If NSFW is `true` in a non-NSFW channel, it is set to `false` before the request is submitted
-                                - https://www.youtube.com/watch?v=Vvx4b_BvwUY&t=101s"#)
+                            "
+                            Why am I doing this at 11:33 PM on a Friday?\n \
+                            - Replicate is dead, Stablity.AI is the future!\n\
+                            - `/dream` now uses Stable Diffusion XL, the next generation in diffusion technology.\n\
+                            - There are now over 15 styles to choose from.\n\
+                            - I'm probably going to run out of credits at some point.\n\
+                            ")
                             .color(0xC2185B)
                             .build()]),
                         ..Default::default()
