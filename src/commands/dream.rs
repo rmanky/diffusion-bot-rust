@@ -54,6 +54,16 @@ enum StableStyle {
     TileTexture,
 }
 
+#[derive(CommandOption, CreateOption)]
+enum StableRatio {
+    #[option(name = "square", value = "square")]
+    Square,
+    #[option(name = "portrait", value = "portrait")]
+    Portrait,
+    #[option(name = "landscape", value = "landscape")]
+    Landscape,
+}
+
 #[derive(CommandModel, CreateCommand)]
 #[command(name = "dream", desc = "Create an image with Stable Diffusion")]
 pub struct DreamCommand {
@@ -61,6 +71,8 @@ pub struct DreamCommand {
     prompt: String,
     /// Define pre-trained weights for the model
     style: Option<StableStyle>,
+    /// Select an aspect ratio for the final image
+    ratio: Option<StableRatio>,
 }
 
 #[derive(Deserialize)]
@@ -72,6 +84,17 @@ struct StableImage {
 struct StableResponse {
     message: Option<String>,
     artifacts: Option<Vec<StableImage>>,
+}
+
+struct AspectRatio {
+    width: i16,
+    height: i16,
+}
+
+impl ToString for AspectRatio {
+    fn to_string(&self) -> String {
+        return format!("{}x{}", self.width, self.height);
+    }
 }
 
 #[async_trait]
@@ -89,6 +112,27 @@ impl CommandHandler for DreamCommand {
 
         let style = self.style.as_ref().map(|f| f.value());
 
+        let ratio = match self.ratio.as_ref() {
+            Some(r) => match r {
+                StableRatio::Square => AspectRatio {
+                    width: 1024,
+                    height: 1024,
+                },
+                StableRatio::Portrait => AspectRatio {
+                    width: 768,
+                    height: 1344,
+                },
+                StableRatio::Landscape => AspectRatio {
+                    width: 1344,
+                    height: 768,
+                },
+            },
+            None => AspectRatio {
+                width: 1024,
+                height: 1024,
+            },
+        };
+
         interaction_client
             .create_response(
                 interaction_id,
@@ -98,9 +142,13 @@ impl CommandHandler for DreamCommand {
                     data: Some(InteractionResponseData {
                         embeds: Some(vec![EmbedBuilder::new()
                             .title("Submitting")
-                            .color(0xF4511E)
+                            .color(0x673AB7)
                             .field(EmbedFieldBuilder::new("Prompt", prompt))
-                            .field(EmbedFieldBuilder::new("Style", style.unwrap_or("None")))
+                            .field(EmbedFieldBuilder::new(
+                                "Style/Ratio",
+                                format!("{}, {}", style.unwrap_or("None"), ratio.to_string()),
+                            ))
+                            .field(EmbedFieldBuilder::new("Ratio", ratio.to_string()))
                             .build()]),
                         ..Default::default()
                     }),
@@ -113,6 +161,7 @@ impl CommandHandler for DreamCommand {
             &reqwest_client,
             prompt.as_str(),
             style,
+            &ratio,
             &interaction_client,
             interaction_token,
         )
@@ -126,7 +175,10 @@ impl CommandHandler for DreamCommand {
                         .title("Failed")
                         .color(0xE53935)
                         .field(EmbedFieldBuilder::new("Prompt", prompt))
-                        .field(EmbedFieldBuilder::new("Style", style.unwrap_or("None")))
+                        .field(EmbedFieldBuilder::new(
+                            "Style/Ratio",
+                            format!("{}, {}", style.unwrap_or("None"), ratio.to_string()),
+                        ))
                         .field(EmbedFieldBuilder::new("Error", format!("`{}`", e.message)))
                         .build()]))
                     .unwrap()
@@ -163,13 +215,14 @@ async fn dream(
     reqwest_client: &Client,
     prompt: &str,
     style: Option<&str>,
+    ratio: &AspectRatio,
     interaction_client: &InteractionClient<'_>,
     interaction_token: &str,
 ) -> Result<(), DreamError> {
     let stable_request = StableRequest {
-        width: 512,
-        height: 512,
-        steps: 50,
+        width: ratio.width,
+        height: ratio.height,
+        steps: 40,
         cfg_scale: 7,
         samples: 1,
         style_preset: style,
@@ -180,9 +233,7 @@ async fn dream(
     };
 
     let submit_request = reqwest_client
-        .post(
-            "https://api.stability.ai/v1/generation/stable-diffusion-xl-beta-v2-2-2/text-to-image",
-        )
+        .post("https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image")
         .header(
             "Authorization",
             format!("Bearer {}", env::var("STABLE_KEY").unwrap()),
@@ -238,7 +289,10 @@ async fn dream(
             .title("Completed")
             .color(0x43A047)
             .field(EmbedFieldBuilder::new("Prompt", prompt))
-            .field(EmbedFieldBuilder::new("Style", style.unwrap_or("None")))
+            .field(EmbedFieldBuilder::new(
+                "Style/Ratio",
+                format!("{}, {}", style.unwrap_or("None"), ratio.to_string()),
+            ))
             .image(ImageSource::attachment(&filename).unwrap())
             .build()]))
         .unwrap()
