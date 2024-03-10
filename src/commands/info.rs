@@ -32,7 +32,7 @@ impl CommandHandler for InfoCommand {
                         embeds: Some(vec![EmbedBuilder::new()
                             .title("Rust NEVER Crashes!")
                             .image(ImageSource::url("https://cache.desktopnexus.com/thumbseg/2491/2491373-bigthumbnail.jpg").unwrap())
-                            .description("Ok look, I write bad code. We all do. But this time, it will be better. I promise.")
+                            .description("Ok look, I write bad code. We all do. But this time, it will be better. I promise. _And Matt, please stop finding bugs. I beg._")
                             .color(0xC2185B)
                             .build()]),
                         ..Default::default()
