@@ -31,14 +31,13 @@ impl CommandHandler for InfoCommand {
                     data: Some(InteractionResponseData {
                         embeds: Some(vec![EmbedBuilder::new()
                             .title("Stable Diffusion, Now Extra Large!")
-                            .image(ImageSource::url("https://mma.prnewswire.com/media/1921904/Stability_AI_logo_Logo.jpg").unwrap())
+                            .image(ImageSource::url("https://miro.medium.com/v2/resize:fit:1400/1*BdM6bCmvyFJKzkhbQ3Uccw.jpeg").unwrap())
                             .description(
                             "
-                            Why am I doing this at 11:33 PM on a Friday?\n \
-                            - Replicate is dead, Stablity.AI is the future!\n\
-                            - `/dream` now uses Stable Diffusion XL, the next generation in diffusion technology.\n\
-                            - There are now over 15 styles to choose from.\n\
-                            - I'm probably going to run out of credits at some point.\n\
+                            Welcome to the future, again!\n\
+                            - SDXL 0.8 is dead, long live SDXL 1.0!\n\
+                            - Added options for aspect ratio!\n\
+                            - I haven't even tested this yet!\n\
                             ")
                             .color(0xC2185B)
                             .build()]),

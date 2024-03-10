@@ -148,7 +148,6 @@ impl CommandHandler for DreamCommand {
                                 "Style/Ratio",
                                 format!("{}, {}", style.unwrap_or("None"), ratio.to_string()),
                             ))
-                            .field(EmbedFieldBuilder::new("Ratio", ratio.to_string()))
                             .build()]),
                         ..Default::default()
                     }),
