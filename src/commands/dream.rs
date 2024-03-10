@@ -269,7 +269,11 @@ async fn dream(
 
     let image_base64 = match submit_response.first() {
         Some(image) => &image.base64,
-        None => todo!(),
+        None => return Err(DreamError {
+            message: format!(
+                "I don't know how. I don't know why. But the success response contained no image."
+            ),
+        }),
     };
 
     let image = match base64::decode(image_base64) {

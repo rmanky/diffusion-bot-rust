@@ -1,4 +1,4 @@
-FROM rust:latest AS builder
+FROM rust:bookworm as builder
 
 WORKDIR /prod
 COPY Cargo.lock .
@@ -12,5 +12,6 @@ RUN cargo build --release
 
 # Use any runner as you want
 # But beware that some images have old glibc which makes rust unhappy
-FROM fedora:34 AS runner
+FROM debian:bookworm-slim
+RUN apt-get update && apt install -y openssl ca-certificates
 COPY --from=builder /prod/target/release/diffusion-bot-rust /bin
