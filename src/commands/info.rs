@@ -30,15 +30,9 @@ impl CommandHandler for InfoCommand {
                     kind: InteractionResponseType::ChannelMessageWithSource,
                     data: Some(InteractionResponseData {
                         embeds: Some(vec![EmbedBuilder::new()
-                            .title("Stable Diffusion, Now Extra Large!")
-                            .image(ImageSource::url("https://miro.medium.com/v2/resize:fit:1400/1*BdM6bCmvyFJKzkhbQ3Uccw.jpeg").unwrap())
-                            .description(
-                            "
-                            Welcome to the future, again!\n\
-                            - SDXL 0.8 is dead, long live SDXL 1.0!\n\
-                            - Added options for aspect ratio!\n\
-                            - I haven't even tested this yet!\n\
-                            ")
+                            .title("Rust NEVER Crashes!")
+                            .image(ImageSource::url("https://cache.desktopnexus.com/thumbseg/2491/2491373-bigthumbnail.jpg").unwrap())
+                            .description("Ok look, I write bad code. We all do. But this time, it will be better. I promise.")
                             .color(0xC2185B)
                             .build()]),
                         ..Default::default()
