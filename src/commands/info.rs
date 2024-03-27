@@ -30,9 +30,9 @@ impl CommandHandler for InfoCommand {
                     kind: InteractionResponseType::ChannelMessageWithSource,
                     data: Some(InteractionResponseData {
                         embeds: Some(vec![EmbedBuilder::new()
-                            .title("Rust NEVER Crashes!")
-                            .image(ImageSource::url("https://cache.desktopnexus.com/thumbseg/2491/2491373-bigthumbnail.jpg").unwrap())
-                            .description("Ok look, I write bad code. We all do. But this time, it will be better. I promise. _And Matt, please stop finding bugs. I beg._")
+                            .title("Stable Diffusion Core")
+                            .image(ImageSource::url("https://i.imgur.com/aN7gSvf.gif").unwrap())
+                            .description("I was looking for an LLM but found this instead! It cost 3 times more than the previous API!")
                             .color(0xC2185B)
                             .build()]),
                         ..Default::default()

@@ -1,9 +1,7 @@
 use std::env;
 
 use async_trait::async_trait;
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use serde_json::json;
+use reqwest::{multipart, Client, StatusCode};
 use twilight_http::client::InteractionClient;
 use twilight_interactions::command::{CommandModel, CommandOption, CreateCommand, CreateOption};
 use twilight_model::http::attachment::Attachment;
@@ -15,44 +13,6 @@ use twilight_model::id::Id;
 use twilight_util::builder::embed::{EmbedBuilder, EmbedFieldBuilder, ImageSource};
 
 use super::{CommandHandler, CommandHandlerData};
-
-#[derive(CommandOption, CreateOption)]
-enum StableStyle {
-    #[option(name = "analog-film", value = "analog-film")]
-    AnalogFilm,
-    #[option(name = "anime", value = "anime")]
-    Anime,
-    #[option(name = "cinematic", value = "cinematic")]
-    Cinematic,
-    #[option(name = "comic-book", value = "comic-book")]
-    ComicBook,
-    #[option(name = "digital-art", value = "digital-art")]
-    DigitalArt,
-    #[option(name = "enhance", value = "enhance")]
-    Enhance,
-    #[option(name = "fantasy-art", value = "fantasy-art")]
-    FantasyArt,
-    #[option(name = "isometric", value = "isometric")]
-    Isometric,
-    #[option(name = "line-art", value = "line-art")]
-    LineArt,
-    #[option(name = "low-poly", value = "low-poly")]
-    LowPoly,
-    #[option(name = "modeling-compound", value = "modeling-compound")]
-    ModelingCompound,
-    #[option(name = "neon-punk", value = "neon-punk")]
-    NeonPunk,
-    #[option(name = "origami", value = "origami")]
-    Origami,
-    #[option(name = "photographic", value = "photographic")]
-    Photographic,
-    #[option(name = "pixel-art", value = "pixel-art")]
-    PixelArt,
-    #[option(name = "3d-model", value = "3d-model")]
-    Model3D,
-    #[option(name = "tile-texture", value = "tile-texture")]
-    TileTexture,
-}
 
 #[derive(CommandOption, CreateOption)]
 enum StableRatio {
@@ -69,32 +29,8 @@ enum StableRatio {
 pub struct DreamCommand {
     /// Prompt for the model to generate
     prompt: String,
-    /// Define pre-trained weights for the model
-    style: Option<StableStyle>,
     /// Select an aspect ratio for the final image
-    ratio: Option<StableRatio>,
-}
-
-#[derive(Deserialize)]
-struct StableImage {
-    base64: String,
-}
-
-#[derive(Deserialize)]
-struct StableResponse {
-    message: Option<String>,
-    artifacts: Option<Vec<StableImage>>,
-}
-
-struct AspectRatio {
-    width: i16,
-    height: i16,
-}
-
-impl ToString for AspectRatio {
-    fn to_string(&self) -> String {
-        return format!("{}x{}", self.width, self.height);
-    }
+    aspect_ratio: Option<StableRatio>,
 }
 
 #[async_trait]
@@ -110,27 +46,13 @@ impl CommandHandler for DreamCommand {
 
         let prompt = &self.prompt;
 
-        let style = self.style.as_ref().map(|f| f.value());
-
-        let ratio = match self.ratio.as_ref() {
+        let aspect_ratio = match self.aspect_ratio.as_ref() {
             Some(r) => match r {
-                StableRatio::Square => AspectRatio {
-                    width: 1024,
-                    height: 1024,
-                },
-                StableRatio::Portrait => AspectRatio {
-                    width: 768,
-                    height: 1344,
-                },
-                StableRatio::Landscape => AspectRatio {
-                    width: 1344,
-                    height: 768,
-                },
+                StableRatio::Square => "1:1",
+                StableRatio::Portrait => "9:16",
+                StableRatio::Landscape => "16:9",
             },
-            None => AspectRatio {
-                width: 1024,
-                height: 1024,
-            },
+            None => "1:1",
         };
 
         interaction_client
@@ -141,12 +63,12 @@ impl CommandHandler for DreamCommand {
                     kind: InteractionResponseType::ChannelMessageWithSource,
                     data: Some(InteractionResponseData {
                         embeds: Some(vec![EmbedBuilder::new()
-                            .title("Submitting")
+                            .title("Dreaming")
                             .color(0x673AB7)
                             .field(EmbedFieldBuilder::new("Prompt", prompt))
                             .field(EmbedFieldBuilder::new(
-                                "Style/Ratio",
-                                format!("{}, {}", style.unwrap_or("None"), ratio.to_string()),
+                                "Aspect Ratio",
+                                format!("{}", aspect_ratio),
                             ))
                             .build()]),
                         ..Default::default()
@@ -158,9 +80,8 @@ impl CommandHandler for DreamCommand {
 
         match dream(
             &reqwest_client,
-            prompt.as_str(),
-            style,
-            &ratio,
+            prompt,
+            aspect_ratio,
             &interaction_client,
             interaction_token,
         )
@@ -175,10 +96,13 @@ impl CommandHandler for DreamCommand {
                         .color(0xE53935)
                         .field(EmbedFieldBuilder::new("Prompt", prompt))
                         .field(EmbedFieldBuilder::new(
-                            "Style/Ratio",
-                            format!("{}, {}", style.unwrap_or("None"), ratio.to_string()),
+                            "Aspect Ratio",
+                            format!("{}", aspect_ratio),
                         ))
-                        .field(EmbedFieldBuilder::new("Error", format!("`{}`", e.message)))
+                        .field(EmbedFieldBuilder::new(
+                            "Error",
+                            format!("```\n{}\n```", e.message),
+                        ))
                         .build()]))
                     .unwrap()
                     .await
@@ -192,73 +116,31 @@ struct DreamError {
     message: String,
 }
 
-#[derive(Serialize, Deserialize)]
-struct StablePrompt<'a> {
-    text: &'a str,
-    weight: i16,
-}
-
-#[derive(Serialize, Deserialize)]
-struct StableRequest<'a> {
-    width: i16,
-    height: i16,
-    steps: i16,
-    cfg_scale: i16,
-    samples: i16,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    style_preset: Option<&'a str>,
-    text_prompts: Vec<StablePrompt<'a>>,
-}
-
 async fn dream(
     reqwest_client: &Client,
     prompt: &str,
-    style: Option<&str>,
-    ratio: &AspectRatio,
+    aspect_ratio: &str,
     interaction_client: &InteractionClient<'_>,
     interaction_token: &str,
 ) -> Result<(), DreamError> {
-    let stable_request = StableRequest {
-        width: ratio.width,
-        height: ratio.height,
-        steps: 40,
-        cfg_scale: 7,
-        samples: 1,
-        style_preset: style,
-        text_prompts: vec![StablePrompt {
-            text: prompt,
-            weight: 1,
-        }],
-    };
+    let form = multipart::Form::new()
+        .text("aspect_ratio", aspect_ratio.to_string())
+        .text("output_format", "webp")
+        .text("prompt", prompt.to_string());
 
     let submit_request = reqwest_client
-        .post("https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image")
+        .post("https://api.stability.ai/v2beta/stable-image/generate/core")
         .header(
             "Authorization",
             format!("Bearer {}", env::var("STABLE_KEY").unwrap()),
         )
-        .header("Accept", "application/json")
-        .header("Content-Type", "application/json")
-        .body(json!(stable_request).to_string())
+        .header("Accept", "image/*")
+        .multipart(form)
         .send()
         .await;
 
-    let submit_response = match submit_request {
-        Ok(r) => match r.json::<StableResponse>().await {
-            Ok(j) => match j.artifacts {
-                Some(v) => v,
-                None => {
-                    return Err(DreamError {
-                        message: format!("{:#?}", j.message),
-                    })
-                }
-            },
-            Err(e) => {
-                return Err(DreamError {
-                    message: format!("{:#?}", e),
-                })
-            }
-        },
+    let response = match submit_request {
+        Ok(r) => r,
         Err(e) => {
             return Err(DreamError {
                 message: format!("{:#?}", e),
@@ -266,17 +148,22 @@ async fn dream(
         }
     };
 
-    let image_base64 = match submit_response.first() {
-        Some(image) => &image.base64,
-        None => return Err(DreamError {
+    let status_code = response.status();
+    if status_code != StatusCode::OK {
+        return Err(DreamError {
             message: format!(
-                "I don't know how. I don't know why. But the success response contained no image."
+                "Status Code: {}\n{:#?}",
+                status_code,
+                response
+                    .text()
+                    .await
+                    .unwrap_or("Failed to parse response bytes".to_string())
             ),
-        }),
-    };
+        });
+    }
 
-    let image = match base64::decode(image_base64) {
-        Ok(i) => i,
+    let image = match response.bytes().await {
+        Ok(img) => img.to_vec(),
         Err(e) => {
             return Err(DreamError {
                 message: format!("{:#?}", e),
@@ -284,7 +171,7 @@ async fn dream(
         }
     };
 
-    let filename = "image.png".to_string();
+    let filename = "image.webp".to_string();
 
     interaction_client
         .update_response(interaction_token)
@@ -293,8 +180,8 @@ async fn dream(
             .color(0x43A047)
             .field(EmbedFieldBuilder::new("Prompt", prompt))
             .field(EmbedFieldBuilder::new(
-                "Style/Ratio",
-                format!("{}, {}", style.unwrap_or("None"), ratio.to_string()),
+                "Aspect Ratio",
+                format!("{}", aspect_ratio),
             ))
             .image(ImageSource::attachment(&filename).unwrap())
             .build()]))
