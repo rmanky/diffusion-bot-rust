@@ -30,9 +30,12 @@ impl CommandHandler for InfoCommand {
                     kind: InteractionResponseType::ChannelMessageWithSource,
                     data: Some(InteractionResponseData {
                         embeds: Some(vec![EmbedBuilder::new()
-                            .title("Stable Diffusion Core")
-                            .image(ImageSource::url("https://i.imgur.com/aN7gSvf.gif").unwrap())
-                            .description("I was looking for an LLM but found this instead! It cost 3 times more than the previous API!")
+                            .title("Stable Diffusion 3")
+                            .image(ImageSource::url("https://i.imgur.com/waJD7VV.png").unwrap())
+                            .description("
+                            We are pleased to announce the availability of Stable Diffusion 3 and Stable Diffusion 3 Turbo on ~~the Stability AI Developer Platform API~~ _Diffusion Bot_.\n
+                            As revealed in the Stable Diffusion 3 [research paper](https://stability.ai/news/stable-diffusion-3-research-paper), this model is equal to or outperforms state-of-the-art text-to-image generation systems such as DALL-E 3 and Midjourney v6 in typography and prompt adherence, based on human preference evaluations. 
+                            ")
                             .color(0xC2185B)
                             .build()]),
                         ..Default::default()
