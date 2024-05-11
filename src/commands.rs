@@ -14,8 +14,9 @@ use twilight_model::{
     },
 };
 
-use self::{dream::DreamCommand, horde::HordeCommand, info::InfoCommand};
+use self::{chat::ChatCommand, dream::DreamCommand, horde::HordeCommand, info::InfoCommand};
 
+mod chat;
 mod dream;
 mod horde;
 mod info;
@@ -58,6 +59,7 @@ impl CommandDelegate for CommandDelegateData {
             HordeCommand::create_command(),
             DreamCommand::create_command(),
             InfoCommand::create_command(),
+            ChatCommand::create_command(),
         ]
         .map(std::convert::Into::into)
         .to_vec()
@@ -117,6 +119,18 @@ impl CommandDelegate for CommandDelegateData {
                     if let Ok(info_command) = InfoCommand::from_interaction((*command_data).into())
                     {
                         info_command
+                            .handle_command(
+                                command_handler_data,
+                                interaction.id,
+                                &interaction.token,
+                            )
+                            .await
+                    }
+                }
+                "chat" => {
+                    if let Ok(chat_command) = ChatCommand::from_interaction((*command_data).into())
+                    {
+                        chat_command
                             .handle_command(
                                 command_handler_data,
                                 interaction.id,
