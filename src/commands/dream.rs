@@ -166,7 +166,7 @@ struct DreamError {
 }
 
 fn details_field(dream_params: &DreamParams) -> EmbedFieldBuilder {
-    let style = dream_params.style.unwrap_or("None");
+    let style = dream_params.style.unwrap_or("none");
     EmbedFieldBuilder::new(
         "Style, Aspect Ratio",
         format!("{}, {}", style, dream_params.aspect_ratio)
