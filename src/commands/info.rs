@@ -33,12 +33,14 @@ impl CommandHandler for InfoCommand {
                         embeds: Some(
                             vec![
                                 EmbedBuilder::new()
-                                    .title("Snowflake Arctic")
+                                    .title("Stable Image Core")
                                     .image(
-                                        ImageSource::url("https://i.imgur.com/2WcVHIy.gif").unwrap()
+                                        ImageSource::url(
+                                            "https://i.pinimg.com/originals/e1/91/2d/e1912d3332c2d3f1db04531a3191b442.gif"
+                                        ).unwrap()
                                     )
                                     .description(
-                                        "An efficient, intelligent, and truly open-source language model. Now available through `/chat`!"
+                                        "We have to go back, Marty! Back to the Future!\n\nAdios SD3 👋, welcome back Stable Core!"
                                     )
                                     .color(0xc2185b)
                                     .build()
