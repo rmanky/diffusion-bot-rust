@@ -208,11 +208,7 @@ async fn chat(
                 }
                 full_output
             }
-            None => {
-                return Err(ChatError {
-                    message: "The output was missing!".to_string(),
-                });
-            }
+            None => "Waiting for output...",
         };
 
         let title: &str;
