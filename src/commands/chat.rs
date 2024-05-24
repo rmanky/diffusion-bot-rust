@@ -208,7 +208,7 @@ async fn chat(
                 }
                 full_output
             }
-            None => "Waiting for output...",
+            None => "Waiting for output...".to_string(),
         };
 
         let title: &str;
