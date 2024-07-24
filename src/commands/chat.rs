@@ -109,7 +109,7 @@ async fn chat(
     interaction_token: &str
 ) -> Result<(), ChatError> {
     let submit_request = reqwest_client
-        .post("https://api.replicate.com/v1/models/snowflake/snowflake-arctic-instruct/predictions")
+        .post("https://api.replicate.com/v1/models/meta/meta-llama-3.1-405b-instruct/predictions")
         .header("Authorization", format!("Bearer {}", env::var("REPLICATE_TOKEN").unwrap()))
         .header("Content-Type", "application/json")
         .body(
@@ -118,13 +118,11 @@ async fn chat(
                     "top_k": 50,
                     "top_p": 0.9,
                     "prompt": prompt,
-                    "temperature": 0.2,
-                    "max_new_tokens": 1024,
-                    "min_new_tokens": 0,
-                    "stop_sequences": "<|im_end|>",
-                    "prompt_template": "<|im_start|>system\\nYou\'re a helpful assistant<|im_end|>\\n<|im_start|>user\\n{prompt}<|im_end|>\\n\\n<|im_start|>assistant\\n",
-                    "presence_penalty": 1.15,
-                    "frequency_penalty": 0.2
+                    "temperature": 0.6,
+                    "max_tokens": 1024,
+                    "min_tokens": 0,
+                    "presence_penalty": 0,
+                    "frequency_penalty": 0
                 }
             }).to_string()
         )
@@ -171,9 +169,9 @@ async fn chat(
 
         let since_start = SystemTime::now().duration_since(start).expect("Time went backwards");
 
-        if since_start.as_secs() > 20 {
+        if since_start.as_secs() > 30 {
             return Err(ChatError {
-                message: "The command timed out after 20 seconds".to_string(),
+                message: "The command timed out after 30 seconds".to_string(),
             });
         }
 
@@ -222,6 +220,10 @@ async fn chat(
         } else if poll_response.status == "processing" {
             title = "Processing";
             color = 0x5e35b1;
+            end = false;
+        } else if poll_response.status == "starting" {
+            title = "Starting";
+            color = 0xfb8c00;
             end = false;
         } else {
             title = "Unknown";
