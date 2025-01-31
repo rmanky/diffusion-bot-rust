@@ -33,16 +33,11 @@ impl CommandHandler for InfoCommand {
                         embeds: Some(
                             vec![
                                 EmbedBuilder::new()
-                                    .title("Hello, Llama! 🦙")
+                                    .title("Time, Dr. Freeman?")
                                     .image(
-                                        ImageSource::url("https://i.imgur.com/K6U2ZWr.png").unwrap()
+                                        ImageSource::url("https://i.imgur.com/nIllLIX.png").unwrap()
                                     )
-                                    .description(
-                                        "Llama 3.1 is replacing Artic Snowflake for `/chat`.
-                                        It is the latest and greatest in open source large language models from our friends at Meta.
-                                        
-                                        Read more at https://ai.meta.com/blog/meta-llama-3-1/"
-                                    )
+                                    .description("Is it really that time again? It seems as if you only just arrived.")
                                     .color(0xc2185b)
                                     .build()
                             ]

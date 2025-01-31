@@ -169,9 +169,9 @@ async fn chat(
 
         let since_start = SystemTime::now().duration_since(start).expect("Time went backwards");
 
-        if since_start.as_secs() > 30 {
+        if since_start.as_secs() > 90 {
             return Err(ChatError {
-                message: "The command timed out after 30 seconds".to_string(),
+                message: "The command timed out after 90 seconds".to_string(),
             });
         }
 
