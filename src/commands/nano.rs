@@ -20,6 +20,8 @@ use twilight_model::id::Id;
 use twilight_util::builder::embed::{EmbedBuilder, EmbedFieldBuilder, ImageSource};
 use twilight_validate::message::MessageValidationError;
 
+use crate::activity::get_random_qoute;
+
 use super::{CommandHandler, CommandHandlerData};
 
 const GEMINI_API_URL: &str =
@@ -263,6 +265,7 @@ async fn create_generating_followup(
 ) -> Result<Id<MessageMarker>, Error> {
     let embed = EmbedBuilder::new()
         .title("Generating...")
+        .description(get_random_qoute())
         .color(0x673ab7)
         .build();
     let followup = client
