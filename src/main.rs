@@ -2,13 +2,9 @@ use crate::commands::CommandDelegateData;
 use activity::get_random_activity;
 use commands::CommandDelegate;
 use dotenv::dotenv;
-use futures::stream::StreamExt;
 use std::{env, error::Error, sync::Arc, time::Duration};
-use twilight_cache_inmemory::{InMemoryCache, ResourceType};
-use twilight_gateway::{
-    cluster::{Cluster, ShardScheme},
-    Event, Intents,
-};
+use twilight_cache_inmemory::DefaultInMemoryCache;
+use twilight_gateway::{Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt};
 use twilight_http::Client as HttpClient;
 use twilight_model::{
     gateway::{payload::outgoing::UpdatePresence, presence::Status},
@@ -21,63 +17,34 @@ mod commands;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     dotenv().ok();
+    env_logger::init();
+
     let token = env::var("DISCORD_TOKEN")?;
 
-    // Start a single shard.
-    let scheme = ShardScheme::Range {
-        from: 0,
-        to: 0,
-        total: 1,
-    };
-
-    // Specify intents requesting events about things like new and updated
-    // messages in a guild and direct messages.
     let intents = Intents::GUILD_MESSAGES | Intents::DIRECT_MESSAGES;
 
-    let (cluster, mut events) = Cluster::builder(token.clone(), intents)
-        .shard_scheme(scheme)
-        .build()
-        .await?;
-
-    let cluster = Arc::new(cluster);
+    let mut shard = Shard::new(ShardId::new(0, 1), token.clone(), intents);
+    let sender = shard.sender();
 
     tokio::spawn(async move {
-        cluster.up().await;
-
-        // Wait 10 seconds for the shard to start
-        tokio::time::sleep(Duration::from_secs(10)).await;
-
         loop {
-            let activity = vec![get_random_activity()];
+            let activity = get_random_activity();
+            let presence =
+                UpdatePresence::new(vec![activity], false, None, Status::Online).unwrap();
 
-            let update_preference = UpdatePresence::new(activity, false, None, Status::Online);
-
-            's: for shard in cluster.shards() {
-                let info = match shard.info() {
-                    Ok(i) => i,
-                    Err(_) => {
-                        eprintln!("Session is not yet active!");
-                        break 's;
-                    }
-                };
-
-                let update_command = match &update_preference {
-                    Ok(c) => c,
-                    Err(_) => {
-                        eprintln!("Failed to update presence!");
-                        break 's;
-                    }
-                };
-
-                cluster.command(info.id(), update_command).await.ok();
+            if let Err(e) = sender.command(&presence) {
+                log::error!("Failed to send presence update: {}", e);
             }
+
             tokio::time::sleep(Duration::from_secs(1800)).await;
         }
     });
 
+    // We pass the Arc'd http client to our command data.
+    // Note: You may need to update CommandDelegateData to accept an Arc<HttpClient>.
     let command_data = Arc::new(CommandDelegateData {
         reqwest_client: reqwest::Client::new(),
-        twilight_client: HttpClient::new(token),
+        twilight_client: HttpClient::new(token.clone()),
     });
 
     let application_id = command_data
@@ -92,22 +59,21 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     interaction_client
         .set_global_commands(&command_data.command_definitions())
-        .await?
-        .models()
         .await?;
 
-    // Since we only care about messages, make the cache only process messages.
-    let cache = InMemoryCache::builder()
-        .resource_types(ResourceType::MESSAGE)
+    let cache = DefaultInMemoryCache::builder()
+        .message_cache_size(10)
         .build();
 
-    // Startup an event loop to process each event in the event stream as they
-    // come in.
-    while let Some((_, event)) = events.next().await {
-        // Update the cache.
+    // The main event loop.
+    while let Some(item) = shard.next_event(EventTypeFlags::all()).await {
+        let event = match item {
+            Ok(event) => event,
+            Err(_) => continue,
+        };
+
         cache.update(&event);
 
-        // Spawn a new task to handle the event
         tokio::spawn(handle_event(
             event,
             application_id,

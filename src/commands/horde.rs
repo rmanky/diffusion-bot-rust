@@ -2,6 +2,8 @@ use std::env;
 use std::time::{Duration, SystemTime};
 
 use async_trait::async_trait;
+use base64::engine::general_purpose;
+use base64::Engine as _;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -170,7 +172,6 @@ impl CommandHandler for HordeCommand {
                         ),
                     ))
                     .build()]))
-                    .unwrap()
                     .await
                     .ok();
             }
@@ -243,7 +244,6 @@ async fn horde(
         )
         .footer(EmbedFooterBuilder::new(&id))
         .build()]))
-        .unwrap()
         .await
         .ok();
 
@@ -258,7 +258,7 @@ async fn horde(
     )
     .await?;
 
-    let image = match base64::decode(generation.img.as_bytes()) {
+    let image = match general_purpose::STANDARD.decode(generation.img.as_bytes()) {
         Ok(i) => i,
         Err(e) => {
             return Err(HordeError {
@@ -286,14 +286,12 @@ async fn horde(
         .image(ImageSource::attachment("image.webp").unwrap())
         .footer(EmbedFooterBuilder::new(&id))
         .build()]))
-        .unwrap()
         .await
         .ok();
 
     interaction_client
         .update_response(interaction_token)
         .attachments(&[Attachment::from_bytes("image.webp".to_string(), image, 1)])
-        .unwrap()
         .await
         .ok();
 
@@ -373,7 +371,6 @@ async fn poll_status(
                 ))
                 .footer(EmbedFooterBuilder::new(id))
                 .build()]))
-                .unwrap()
                 .await
                 .ok();
             continue;

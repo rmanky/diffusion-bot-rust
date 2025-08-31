@@ -1,4 +1,4 @@
-use rand::seq::SliceRandom;
+use rand::seq::IndexedRandom;
 use twilight_model::gateway::presence::{Activity, ActivityType, MinimalActivity};
 
 struct ActivityData<'a> {
@@ -26,7 +26,7 @@ static ACTIVITIES: &[ActivityData] = &[
 ];
 
 pub fn get_random_activity() -> Activity {
-    let activity = ACTIVITIES.choose(&mut rand::thread_rng()).unwrap();
+    let activity = ACTIVITIES.choose(&mut rand::rng()).unwrap();
 
     let minimal_activity = MinimalActivity {
         name: activity.name.to_string(),

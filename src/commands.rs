@@ -14,12 +14,16 @@ use twilight_model::{
     },
 };
 
-use self::{chat::ChatCommand, dream::DreamCommand, horde::HordeCommand, info::InfoCommand};
+use self::{
+    chat::ChatCommand, dream::DreamCommand, horde::HordeCommand, info::InfoCommand,
+    nano::NanoCommand,
+};
 
 mod chat;
 mod dream;
 mod horde;
 mod info;
+mod nano;
 
 pub struct CommandHandlerData<'a> {
     pub channel: Channel,
@@ -60,6 +64,7 @@ impl CommandDelegate for CommandDelegateData {
             DreamCommand::create_command(),
             InfoCommand::create_command(),
             ChatCommand::create_command(),
+            NanoCommand::create_command(),
         ]
         .map(std::convert::Into::into)
         .to_vec()
@@ -71,15 +76,12 @@ impl CommandDelegate for CommandDelegateData {
         application_id: Id<ApplicationMarker>,
     ) {
         if let Some(InteractionData::ApplicationCommand(command_data)) = interaction.data {
-            let channel = match interaction.channel_id {
-                Some(v) => match self.twilight_client.channel(v).await {
-                    Ok(c) => match c.model().await {
-                        Ok(m) => m,
-                        Err(_) => return,
-                    },
-                    Err(_) => return,
-                },
-                None => return,
+            let channel = match interaction.channel {
+                Some(c) => c,
+                None => {
+                    log::warn!("Received a command from an unknown channel.");
+                    return;
+                }
             };
 
             let command_handler_data = CommandHandlerData {
@@ -131,6 +133,18 @@ impl CommandDelegate for CommandDelegateData {
                     if let Ok(chat_command) = ChatCommand::from_interaction((*command_data).into())
                     {
                         chat_command
+                            .handle_command(
+                                command_handler_data,
+                                interaction.id,
+                                &interaction.token,
+                            )
+                            .await
+                    }
+                }
+                "nano" => {
+                    if let Ok(nano_command) = NanoCommand::from_interaction((*command_data).into())
+                    {
+                        nano_command
                             .handle_command(
                                 command_handler_data,
                                 interaction.id,

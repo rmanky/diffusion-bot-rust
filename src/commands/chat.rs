@@ -1,23 +1,21 @@
 use std::env;
-use std::time::{ Duration, SystemTime };
+use std::time::{Duration, SystemTime};
 
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::json;
 use twilight_http::client::InteractionClient;
-use twilight_interactions::command::{ CommandModel, CreateCommand };
+use twilight_interactions::command::{CommandModel, CreateCommand};
 use twilight_model::channel::message::Embed;
 use twilight_model::http::interaction::{
-    InteractionResponse,
-    InteractionResponseData,
-    InteractionResponseType,
+    InteractionResponse, InteractionResponseData, InteractionResponseType,
 };
 use twilight_model::id::marker::InteractionMarker;
 use twilight_model::id::Id;
-use twilight_util::builder::embed::{ EmbedBuilder, EmbedFieldBuilder, EmbedFooterBuilder };
+use twilight_util::builder::embed::{EmbedBuilder, EmbedFieldBuilder, EmbedFooterBuilder};
 
-use super::{ CommandHandler, CommandHandlerData };
+use super::{CommandHandler, CommandHandlerData};
 
 #[derive(CommandModel, CreateCommand)]
 #[command(name = "chat", desc = "Chat with Snowflake Arctic")]
@@ -43,7 +41,7 @@ impl CommandHandler for ChatCommand {
         &self,
         command_handler_data: CommandHandlerData<'_>,
         interaction_id: Id<InteractionMarker>,
-        interaction_token: &'_ str
+        interaction_token: &'_ str,
     ) {
         let interaction_client = command_handler_data.interaction_client;
         let reqwest_client = command_handler_data.reqwest_client;
@@ -57,22 +55,26 @@ impl CommandHandler for ChatCommand {
                 &(InteractionResponse {
                     kind: InteractionResponseType::ChannelMessageWithSource,
                     data: Some(InteractionResponseData {
-                        embeds: Some(
-                            vec![
-                                EmbedBuilder::new()
-                                    .title("Chatting")
-                                    .color(0x673ab7)
-                                    .field(EmbedFieldBuilder::new("Prompt", prompt))
-                                    .build()
-                            ]
-                        ),
+                        embeds: Some(vec![EmbedBuilder::new()
+                            .title("Chatting")
+                            .color(0x673ab7)
+                            .field(EmbedFieldBuilder::new("Prompt", prompt))
+                            .build()]),
                         ..Default::default()
                     }),
-                })
-            ).await
+                }),
+            )
+            .await
             .ok();
 
-        let e = match chat(prompt, &reqwest_client, &interaction_client, interaction_token).await {
+        let e = match chat(
+            prompt,
+            &reqwest_client,
+            &interaction_client,
+            interaction_token,
+        )
+        .await
+        {
             Ok(_) => {
                 return;
             }
@@ -81,19 +83,15 @@ impl CommandHandler for ChatCommand {
 
         interaction_client
             .update_response(interaction_token)
-            .embeds(
-                Some(
-                    &[
-                        prompt_embed(prompt, "UNKNOWN"),
-                        EmbedBuilder::new()
-                            .title("Failed")
-                            .color(0xe53935)
-                            .description(format!("```\n{}\n```", e.message))
-                            .build(),
-                    ]
-                )
-            )
-            .unwrap().await
+            .embeds(Some(&[
+                prompt_embed(prompt, "UNKNOWN"),
+                EmbedBuilder::new()
+                    .title("Failed")
+                    .color(0xe53935)
+                    .description(format!("```\n{}\n```", e.message))
+                    .build(),
+            ]))
+            .await
             .ok();
     }
 }
@@ -106,11 +104,14 @@ async fn chat(
     prompt: &str,
     reqwest_client: &Client,
     interaction_client: &InteractionClient<'_>,
-    interaction_token: &str
+    interaction_token: &str,
 ) -> Result<(), ChatError> {
     let submit_request = reqwest_client
         .post("https://api.replicate.com/v1/models/meta/meta-llama-3.1-405b-instruct/predictions")
-        .header("Authorization", format!("Bearer {}", env::var("REPLICATE_TOKEN").unwrap()))
+        .header(
+            "Authorization",
+            format!("Bearer {}", env::var("REPLICATE_TOKEN").unwrap()),
+        )
         .header("Content-Type", "application/json")
         .body(
             json!({
@@ -124,20 +125,21 @@ async fn chat(
                     "presence_penalty": 0,
                     "frequency_penalty": 0
                 }
-            }).to_string()
+            })
+            .to_string(),
         )
-        .send().await;
+        .send()
+        .await;
 
     let submit_response = match submit_request {
-        Ok(r) =>
-            match r.json::<ReplicateSubmit>().await {
-                Ok(j) => j,
-                Err(e) => {
-                    return Err(ChatError {
-                        message: format!("{:#?}", e),
-                    });
-                }
+        Ok(r) => match r.json::<ReplicateSubmit>().await {
+            Ok(j) => j,
+            Err(e) => {
+                return Err(ChatError {
+                    message: format!("{:#?}", e),
+                });
             }
+        },
         Err(e) => {
             return Err(ChatError {
                 message: format!("{:#?}", e),
@@ -147,19 +149,15 @@ async fn chat(
 
     interaction_client
         .update_response(interaction_token)
-        .embeds(
-            Some(
-                &[
-                    prompt_embed(prompt, &submit_response.id),
-                    EmbedBuilder::new()
-                        .title("Submitted")
-                        .color(0x00897b)
-                        .description("Prompt submitted, awaiting confirmation.")
-                        .build(),
-                ]
-            )
-        )
-        .unwrap().await
+        .embeds(Some(&[
+            prompt_embed(prompt, &submit_response.id),
+            EmbedBuilder::new()
+                .title("Submitted")
+                .color(0x00897b)
+                .description("Prompt submitted, awaiting confirmation.")
+                .build(),
+        ]))
+        .await
         .ok();
 
     let start = SystemTime::now();
@@ -167,7 +165,9 @@ async fn chat(
     loop {
         tokio::time::sleep(Duration::from_millis(250)).await;
 
-        let since_start = SystemTime::now().duration_since(start).expect("Time went backwards");
+        let since_start = SystemTime::now()
+            .duration_since(start)
+            .expect("Time went backwards");
 
         if since_start.as_secs() > 90 {
             return Err(ChatError {
@@ -176,20 +176,25 @@ async fn chat(
         }
 
         let poll_request = reqwest_client
-            .get(format!("https://api.replicate.com/v1/predictions/{}", submit_response.id))
-            .header("Authorization", format!("Bearer {}", env::var("REPLICATE_TOKEN").unwrap()))
+            .get(format!(
+                "https://api.replicate.com/v1/predictions/{}",
+                submit_response.id
+            ))
+            .header(
+                "Authorization",
+                format!("Bearer {}", env::var("REPLICATE_TOKEN").unwrap()),
+            )
             .header("Content-Type", "application/json")
-            .send().await;
+            .send()
+            .await;
 
         let poll_response = match poll_request {
-            Ok(r) => {
-                match r.json::<ReplicatePoll>().await {
-                    Ok(j) => j,
-                    Err(_) => {
-                        continue;
-                    }
+            Ok(r) => match r.json::<ReplicatePoll>().await {
+                Ok(j) => j,
+                Err(_) => {
+                    continue;
                 }
-            }
+            },
             Err(e) => {
                 return Err(ChatError {
                     message: format!("{:#?}", e),
@@ -233,20 +238,16 @@ async fn chat(
 
         interaction_client
             .update_response(interaction_token)
-            .embeds(
-                Some(
-                    &[
-                        prompt_embed(prompt, &submit_response.id),
-                        EmbedBuilder::new()
-                            .title(title)
-                            .color(color)
-                            .description(output)
-                            .footer(EmbedFooterBuilder::new(&submit_response.id))
-                            .build(),
-                    ]
-                )
-            )
-            .unwrap().await
+            .embeds(Some(&[
+                prompt_embed(prompt, &submit_response.id),
+                EmbedBuilder::new()
+                    .title(title)
+                    .color(color)
+                    .description(output)
+                    .footer(EmbedFooterBuilder::new(&submit_response.id))
+                    .build(),
+            ]))
+            .await
             .ok();
 
         if end {

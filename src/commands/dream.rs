@@ -1,20 +1,18 @@
 use std::env;
 
 use async_trait::async_trait;
-use reqwest::{ multipart, Client, StatusCode };
+use reqwest::{multipart, Client, StatusCode};
 use twilight_http::client::InteractionClient;
-use twilight_interactions::command::{ CommandModel, CommandOption, CreateCommand, CreateOption };
+use twilight_interactions::command::{CommandModel, CommandOption, CreateCommand, CreateOption};
 use twilight_model::http::attachment::Attachment;
 use twilight_model::http::interaction::{
-    InteractionResponse,
-    InteractionResponseData,
-    InteractionResponseType,
+    InteractionResponse, InteractionResponseData, InteractionResponseType,
 };
 use twilight_model::id::marker::InteractionMarker;
 use twilight_model::id::Id;
-use twilight_util::builder::embed::{ EmbedBuilder, EmbedFieldBuilder, ImageSource };
+use twilight_util::builder::embed::{EmbedBuilder, EmbedFieldBuilder, ImageSource};
 
-use super::{ CommandHandler, CommandHandlerData };
+use super::{CommandHandler, CommandHandlerData};
 
 #[derive(CommandOption, CreateOption)]
 enum StableRatio {
@@ -87,7 +85,7 @@ impl CommandHandler for DreamCommand {
         &self,
         command_handler_data: CommandHandlerData<'_>,
         interaction_id: Id<InteractionMarker>,
-        interaction_token: &'_ str
+        interaction_token: &'_ str,
     ) {
         let interaction_client = command_handler_data.interaction_client;
         let reqwest_client = command_handler_data.reqwest_client;
@@ -114,24 +112,26 @@ impl CommandHandler for DreamCommand {
                 &(InteractionResponse {
                     kind: InteractionResponseType::ChannelMessageWithSource,
                     data: Some(InteractionResponseData {
-                        embeds: Some(
-                            vec![
-                                EmbedBuilder::new()
-                                    .title("Dreaming")
-                                    .color(0x673ab7)
-                                    .field(EmbedFieldBuilder::new("Prompt", prompt))
-                                    .field(details_field(&dream_params))
-                                    .build()
-                            ]
-                        ),
+                        embeds: Some(vec![EmbedBuilder::new()
+                            .title("Dreaming")
+                            .color(0x673ab7)
+                            .field(EmbedFieldBuilder::new("Prompt", prompt))
+                            .field(details_field(&dream_params))
+                            .build()]),
                         ..Default::default()
                     }),
-                })
-            ).await
+                }),
+            )
+            .await
             .ok();
 
-        let e = match
-            dream(&reqwest_client, &dream_params, &interaction_client, interaction_token).await
+        let e = match dream(
+            &reqwest_client,
+            &dream_params,
+            &interaction_client,
+            interaction_token,
+        )
+        .await
         {
             Ok(_) => {
                 return;
@@ -141,22 +141,17 @@ impl CommandHandler for DreamCommand {
 
         interaction_client
             .update_response(interaction_token)
-            .embeds(
-                Some(
-                    &[
-                        EmbedBuilder::new()
-                            .title("Failed")
-                            .color(0xe53935)
-                            .field(EmbedFieldBuilder::new("Prompt", prompt))
-                            .field(details_field(&dream_params))
-                            .field(
-                                EmbedFieldBuilder::new("Error", format!("```\n{}\n```", e.message))
-                            )
-                            .build(),
-                    ]
-                )
-            )
-            .unwrap().await
+            .embeds(Some(&[EmbedBuilder::new()
+                .title("Failed")
+                .color(0xe53935)
+                .field(EmbedFieldBuilder::new("Prompt", prompt))
+                .field(details_field(&dream_params))
+                .field(EmbedFieldBuilder::new(
+                    "Error",
+                    format!("```\n{}\n```", e.message),
+                ))
+                .build()]))
+            .await
             .ok();
     }
 }
@@ -169,7 +164,7 @@ fn details_field(dream_params: &DreamParams) -> EmbedFieldBuilder {
     let style = dream_params.style.unwrap_or("none");
     EmbedFieldBuilder::new(
         "Style, Aspect Ratio",
-        format!("{}, {}", style, dream_params.aspect_ratio)
+        format!("{}, {}", style, dream_params.aspect_ratio),
     )
 }
 
@@ -177,28 +172,31 @@ async fn dream(
     reqwest_client: &Client,
     dream_params: &DreamParams<'_>,
     interaction_client: &InteractionClient<'_>,
-    interaction_token: &str
+    interaction_token: &str,
 ) -> Result<(), DreamError> {
     let prompt = dream_params.prompt;
     let aspect_ratio = dream_params.aspect_ratio;
     let style = dream_params.style;
-    let form = multipart::Form
-        ::new()
+    let form = multipart::Form::new()
         .text("prompt", prompt.to_string())
         .text("aspect_ratio", aspect_ratio.to_string())
         .text("output_format", "webp");
 
     let form = match style {
-        Some(s) => { form.text("style_preset", s.to_string()) }
+        Some(s) => form.text("style_preset", s.to_string()),
         None => form,
     };
 
     let submit_request = reqwest_client
         .post("https://api.stability.ai/v2beta/stable-image/generate/core")
-        .header("Authorization", format!("Bearer {}", env::var("STABLE_KEY").unwrap()))
+        .header(
+            "Authorization",
+            format!("Bearer {}", env::var("STABLE_KEY").unwrap()),
+        )
         .header("Accept", "image/*")
         .multipart(form)
-        .send().await;
+        .send()
+        .await;
 
     let response = match submit_request {
         Ok(r) => r,
@@ -215,7 +213,10 @@ async fn dream(
             message: format!(
                 "Status Code: {}\n{:#?}",
                 status_code,
-                response.text().await.unwrap_or("Failed to parse response bytes".to_string())
+                response
+                    .text()
+                    .await
+                    .unwrap_or("Failed to parse response bytes".to_string())
             ),
         });
     }
@@ -233,26 +234,20 @@ async fn dream(
 
     interaction_client
         .update_response(interaction_token)
-        .embeds(
-            Some(
-                &[
-                    EmbedBuilder::new()
-                        .title("Completed")
-                        .color(0x43a047)
-                        .field(EmbedFieldBuilder::new("Prompt", prompt))
-                        .field(details_field(&dream_params))
-                        .image(ImageSource::attachment(&filename).unwrap())
-                        .build(),
-                ]
-            )
-        )
-        .unwrap().await
+        .embeds(Some(&[EmbedBuilder::new()
+            .title("Completed")
+            .color(0x43a047)
+            .field(EmbedFieldBuilder::new("Prompt", prompt))
+            .field(details_field(&dream_params))
+            .image(ImageSource::attachment(&filename).unwrap())
+            .build()]))
+        .await
         .ok();
 
     interaction_client
         .update_response(interaction_token)
         .attachments(&[Attachment::from_bytes(filename, image, 1)])
-        .unwrap().await
+        .await
         .ok();
 
     return Ok(());
