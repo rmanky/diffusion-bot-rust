@@ -17,15 +17,15 @@ use twilight_model::http::attachment::Attachment as HttpAttachment;
 use twilight_model::http::interaction::{InteractionResponse, InteractionResponseType};
 use twilight_model::id::marker::{InteractionMarker, MessageMarker};
 use twilight_model::id::Id;
-use twilight_util::builder::embed::{EmbedBuilder, EmbedFieldBuilder, ImageSource};
+use twilight_util::builder::embed::{
+    EmbedBuilder, EmbedFieldBuilder, EmbedFooterBuilder, ImageSource,
+};
 use twilight_validate::message::MessageValidationError;
 
 use crate::activity::get_random_qoute;
 
 use super::{CommandHandler, CommandHandlerData};
 
-const GEMINI_API_URL: &str =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent";
 const MAX_ERROR_LENGTH: usize = 1000;
 
 struct NanoError {
@@ -174,17 +174,28 @@ impl NanoCommand {
             followup_id
         );
 
+        let model_name = env::var("GEMINI_MODEL").unwrap();
+
         match nano(
             &reqwest_client,
+            &model_name,
             &self.prompt,
             resized_main.as_ref(),
             resized_secondary.as_ref(),
         )
         .await
         {
-            Ok(output) => {
+            Ok((output, key_used)) => {
                 info!("nano function returned Ok. Preparing final update for followup.");
-                send_success_followup(&client, interaction_token, followup_id, output).await?;
+                send_success_followup(
+                    &client,
+                    interaction_token,
+                    followup_id,
+                    output,
+                    &model_name,
+                    key_used,
+                )
+                .await?;
                 info!("Final update sent successfully.");
             }
             Err(e) => {
@@ -282,8 +293,15 @@ async fn send_success_followup(
     token: &str,
     id: Id<MessageMarker>,
     output: NanoOutput,
+    model_name: &str,
+    key_used: &str,
 ) -> Result<(), Error> {
-    let mut embed_builder = EmbedBuilder::new().title("Completed").color(0x43a047);
+    let footer_text = format!("Model: {} | Key: {}", model_name, key_used);
+    let footer = EmbedFooterBuilder::new(footer_text).build();
+    let mut embed_builder = EmbedBuilder::new()
+        .title("Completed")
+        .color(0x43a047)
+        .footer(footer);
 
     if let Some(text) = output.text {
         embed_builder = embed_builder.field(EmbedFieldBuilder::new("Response", text));
@@ -393,10 +411,11 @@ fn image_to_json_part(image: &DynamicImage) -> Result<serde_json::Value, ImageEr
 
 async fn nano(
     reqwest_client: &Client,
+    model_name: &str,
     prompt: &str,
     main_image: Option<&DynamicImage>,
     secondary_image: Option<&DynamicImage>,
-) -> Result<NanoOutput, NanoError> {
+) -> Result<(NanoOutput, &'static str), NanoError> {
     let mut parts: Vec<serde_json::Value> = Vec::new();
 
     if let Some(image) = secondary_image {
@@ -412,65 +431,103 @@ async fn nano(
     parts.push(json!({ "text": prompt }));
 
     let request_body = json!({ "contents": [{ "parts": parts }] });
+    let api_url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
+        model_name
+    );
 
-    let response = reqwest_client
-        .post(GEMINI_API_URL)
-        .header("x-goog-api-key", env::var("GEMINI_API_KEY").unwrap())
-        .json(&request_body)
-        .send()
-        .await
-        .map_err(|e| NanoError {
-            message: format!("Request failed: {}", e),
-        })?;
+    let keys_to_try = [("free", "GEMINI_API_FREE_KEY"), ("paid", "GEMINI_API_KEY")];
+    let mut last_error_message = "No API keys configured or all attempts failed".to_string();
 
-    let status_code = response.status();
-    let text = response.text().await.unwrap_or_default();
+    for (key_name, env_var) in keys_to_try {
+        let api_key = match env::var(env_var) {
+            Ok(key) if !key.is_empty() => key,
+            _ => continue,
+        };
 
-    if status_code != StatusCode::OK {
-        return Err(NanoError {
-            message: format!("API Error {}:\n{}", status_code, text),
-        });
+        let response_result = reqwest_client
+            .post(&api_url)
+            .header("x-goog-api-key", api_key)
+            .json(&request_body)
+            .send()
+            .await;
+
+        let response = match response_result {
+            Ok(resp) => resp,
+            Err(e) => {
+                last_error_message = format!("Request failed with key {}: {}", key_name, e);
+                info!("{}", last_error_message);
+                continue;
+            }
+        };
+
+        let status_code = response.status();
+        let text = response.text().await.unwrap_or_default();
+
+        if !status_code.is_success() {
+            last_error_message = format!(
+                "API Error with key {} ({}):\n{}",
+                key_name, status_code, text
+            );
+            info!("{}", last_error_message);
+            continue;
+        }
+
+        let gemini_response: GeminiResponse = match serde_json::from_str(&text) {
+            Ok(resp) => resp,
+            Err(e) => {
+                last_error_message = format!(
+                    "JSON Parse Error with key {}: {}\nResponse: {}",
+                    key_name, e, text
+                );
+                info!("{}", last_error_message);
+                continue;
+            }
+        };
+
+        if let Some(reason) = gemini_response
+            .prompt_feedback
+            .and_then(|fb| fb.block_reason)
+        {
+            return Err(NanoError {
+                message: format!("Request blocked by safety filter: {}", reason),
+            });
+        }
+
+        let candidate = gemini_response
+            .candidates
+            .unwrap_or_default()
+            .into_iter()
+            .find(|c| c.finish_reason.as_deref() == Some("STOP"))
+            .ok_or_else(|| NanoError {
+                message: "No valid candidates in response.".to_string(),
+            })?;
+
+        let text = candidate.content.parts.iter().find_map(|p| p.text.clone());
+        let image = candidate
+            .content
+            .parts
+            .iter()
+            .find_map(|p| p.inline_data.as_ref())
+            .map(|data| general_purpose::STANDARD.decode(&data.data))
+            .transpose()
+            .map_err(|e| NanoError {
+                message: format!("Base64 Decode Error: {}", e),
+            })?;
+
+        if text.is_none() && image.is_none() {
+            return Err(NanoError {
+                message: "Response contained no usable data.".to_string(),
+            });
+        }
+
+        // Success with the current key
+        let output = NanoOutput { text, image };
+        return Ok((output, key_name));
     }
 
-    let gemini_response: GeminiResponse = serde_json::from_str(&text).map_err(|e| NanoError {
-        message: format!("JSON Parse Error: {}\nResponse: {}", e, text),
-    })?;
-
-    if let Some(reason) = gemini_response
-        .prompt_feedback
-        .and_then(|fb| fb.block_reason)
-    {
-        return Err(NanoError {
-            message: format!("Blocked by safety filter: {}", reason),
-        });
-    }
-
-    let candidate = gemini_response
-        .candidates
-        .unwrap_or_default()
-        .into_iter()
-        .find(|c| c.finish_reason.as_deref() == Some("STOP"))
-        .ok_or_else(|| NanoError {
-            message: "No valid candidates in response.".to_string(),
-        })?;
-
-    let text = candidate.content.parts.iter().find_map(|p| p.text.clone());
-    let image = candidate
-        .content
-        .parts
-        .iter()
-        .find_map(|p| p.inline_data.as_ref())
-        .map(|data| general_purpose::STANDARD.decode(&data.data))
-        .transpose()
-        .map_err(|e| NanoError {
-            message: format!("Base64 Decode Error: {}", e),
-        })?;
-
-    if text.is_none() && image.is_none() {
-        return Err(NanoError {
-            message: "Response contained no usable data.".to_string(),
-        });
-    }
-
-    Ok(NanoOutput { text, image })
+    // If the loop finishes, all keys failed.
+    Err(NanoError {
+        message: last_error_message,
+    })
 }
