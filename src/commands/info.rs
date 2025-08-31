@@ -21,29 +21,27 @@ impl CommandHandler for InfoCommand {
         interaction_id: Id<InteractionMarker>,
         interaction_token: &'_ str,
     ) {
-        command_handler_data.interaction_client
+        command_handler_data
+            .interaction_client
             .create_response(
                 interaction_id,
                 interaction_token,
                 &(InteractionResponse {
                     kind: InteractionResponseType::ChannelMessageWithSource,
                     data: Some(InteractionResponseData {
-                        embeds: Some(
-                            vec![
-                                EmbedBuilder::new()
-                                    .title("Time, Dr. Freeman?")
-                                    .image(
-                                        ImageSource::url("https://i.imgur.com/nIllLIX.png").unwrap()
-                                    )
-                                    .description("Is it really that time again? It seems as if you only just arrived.")
-                                    .color(0xc2185b)
-                                    .build()
-                            ]
-                        ),
+                        embeds: Some(vec![EmbedBuilder::new()
+                            .title("Nano-Banana")
+                            .image(ImageSource::url("https://i.ibb.co/WvRg3ccW/image.png").unwrap())
+                            .description(
+                                "The latest and greatest from the Big G, now available via `/nano`.\n_this costs me $0.04 per image so plz don't spam okay thx bye_",
+                            )
+                            .color(0xc2185b)
+                            .build()]),
                         ..Default::default()
                     }),
-                })
-            ).await
+                }),
+            )
+            .await
             .ok();
     }
 }
