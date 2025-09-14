@@ -6,13 +6,13 @@ use serde_json::json;
 use twilight_interactions::command::{CommandModel, CommandOption, CreateCommand, CreateOption};
 use twilight_model::http::attachment::Attachment;
 use twilight_model::http::interaction::{
-    InteractionResponse,
-    InteractionResponseData,
-    InteractionResponseType,
+    InteractionResponse, InteractionResponseData, InteractionResponseType,
 };
 use twilight_model::id::marker::InteractionMarker;
 use twilight_model::id::Id;
-use twilight_util::builder::embed::{EmbedBuilder, EmbedFieldBuilder, EmbedFooterBuilder, ImageSource};
+use twilight_util::builder::embed::{
+    EmbedBuilder, EmbedFieldBuilder, EmbedFooterBuilder, ImageSource,
+};
 
 use super::{CommandHandler, CommandHandlerData};
 use crate::commands::google_ai::{post_generative_ai, GoogleAiError, GOOGLE_API_PAID_KEY};
@@ -28,7 +28,7 @@ enum ImagenAspectRatio {
 }
 
 #[derive(CommandModel, CreateCommand)]
-#[command(name = "dream", desc = "Create an image with Imagen")]
+#[command(name = "dream", desc = "Create an image with Imagen 4")]
 pub struct DreamCommand {
     /// Prompt for the model to generate.
     prompt: String,
@@ -169,9 +169,14 @@ async fn dream(
     let api_url =
         "https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict";
 
-    let google_ai_response = post_generative_ai(reqwest_client, api_url, &request_body, &[GOOGLE_API_PAID_KEY])
-        .await
-        .map_err(|e: GoogleAiError| DreamError { message: e.message })?;
+    let google_ai_response = post_generative_ai(
+        reqwest_client,
+        api_url,
+        &request_body,
+        &[GOOGLE_API_PAID_KEY],
+    )
+    .await
+    .map_err(|e: GoogleAiError| DreamError { message: e.message })?;
     let text = google_ai_response.text;
     let tier_used = google_ai_response.tier_used;
 

@@ -14,12 +14,13 @@
       devShells.x86_64-linux.default = pkgs.mkShell {
         packages = [
           pkgs.rustc
+          pkgs.rust-analyzer
           pkgs.cargo
+          pkgs.cargo-watch
+          pkgs.rustfmt
           pkgs.flyctl
           pkgs.pkg-config
           pkgs.openssl
-          pkgs.cargo-watch
-          pkgs.rust-analyzer
           pkgs.cmake
         ];
       };

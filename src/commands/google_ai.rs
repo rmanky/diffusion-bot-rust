@@ -9,6 +9,7 @@ pub struct GoogleAiError {
     pub message: String,
 }
 
+#[derive(Debug)]
 pub struct GoogleApiKey<'a> {
     pub tier: &'a str,
     pub env_var: &'a str,
@@ -21,7 +22,7 @@ pub const GOOGLE_API_FREE_KEY: GoogleApiKey = GoogleApiKey {
 
 pub const GOOGLE_API_PAID_KEY: GoogleApiKey = GoogleApiKey {
     tier: "paid",
-    env_var: "GOOGLE_API_PAID_KEY",
+    env_var: "GEMINI_API_KEY",
 };
 
 pub struct GoogleAiResponse<'a> {
@@ -36,9 +37,8 @@ pub async fn post_generative_ai<'a>(
     keys_to_try: &[GoogleApiKey<'a>],
 ) -> Result<GoogleAiResponse<'a>, GoogleAiError> {
     let mut last_error_message = "No API keys configured or all attempts failed".to_string();
-
     for google_api_key in keys_to_try {
-        let key_tier = google_api_key.tier;
+        let tier_used = google_api_key.tier;
         let api_key = match env::var(google_api_key.env_var) {
             Ok(key) if !key.is_empty() => key,
             _ => continue,
@@ -54,7 +54,7 @@ pub async fn post_generative_ai<'a>(
         let response = match response_result {
             Ok(resp) => resp,
             Err(e) => {
-                last_error_message = format!("Request failed with key {}: {}", key_tier, e);
+                last_error_message = format!("Request failed with tier {}: {}", tier_used, e);
                 info!("{}", last_error_message);
                 continue;
             }
@@ -65,19 +65,17 @@ pub async fn post_generative_ai<'a>(
 
         if !status_code.is_success() {
             last_error_message = format!(
-                "API Error with key {} ({}):\n{}",
-                key_tier, status_code, text
+                "API Error with tier {} ({}):\n{}",
+                tier_used, status_code, text
             );
             info!("{}", last_error_message);
             continue;
         }
 
-        return Ok(
-            GoogleAiResponse {
-                text,
-                tier_used: key_tier,
-            }
-        );
+        return Ok(GoogleAiResponse {
+            text,
+            tier_used: tier_used,
+        });
     }
 
     Err(GoogleAiError {
