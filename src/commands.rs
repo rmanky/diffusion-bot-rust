@@ -24,6 +24,7 @@ mod dream;
 mod horde;
 mod info;
 mod nano;
+mod google_ai;
 
 pub struct CommandHandlerData<'a> {
     pub channel: Channel,

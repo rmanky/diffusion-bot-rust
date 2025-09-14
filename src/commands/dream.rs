@@ -1,21 +1,25 @@
-use std::env;
-
 use async_trait::async_trait;
-use reqwest::{multipart, Client, StatusCode};
+use base64::{engine::general_purpose, Engine as _};
+use reqwest::Client;
+use serde::Deserialize;
+use serde_json::json;
 use twilight_http::client::InteractionClient;
 use twilight_interactions::command::{CommandModel, CommandOption, CreateCommand, CreateOption};
 use twilight_model::http::attachment::Attachment;
 use twilight_model::http::interaction::{
-    InteractionResponse, InteractionResponseData, InteractionResponseType,
+    InteractionResponse,
+    InteractionResponseData,
+    InteractionResponseType,
 };
 use twilight_model::id::marker::InteractionMarker;
 use twilight_model::id::Id;
-use twilight_util::builder::embed::{EmbedBuilder, EmbedFieldBuilder, ImageSource};
+use twilight_util::builder::embed::{EmbedBuilder, EmbedFieldBuilder, EmbedFooterBuilder, ImageSource};
 
 use super::{CommandHandler, CommandHandlerData};
+use crate::commands::google_ai::{post_generative_ai, GoogleAiError};
 
 #[derive(CommandOption, CreateOption)]
-enum StableRatio {
+enum ImagenAspectRatio {
     #[option(name = "square", value = "1:1")]
     Square,
     #[option(name = "portrait", value = "9:16")]
@@ -24,59 +28,29 @@ enum StableRatio {
     Landscape,
 }
 
-#[derive(CommandOption, CreateOption)]
-enum StableStyle {
-    #[option(name = "3d-model", value = "3d-model")]
-    Model,
-    #[option(name = "analog-film", value = "analog-film")]
-    AnalogFilm,
-    #[option(name = "anime", value = "anime")]
-    Anime,
-    #[option(name = "cinematic", value = "cinematic")]
-    Cinematic,
-    #[option(name = "comic-book", value = "comic-book")]
-    ComicBook,
-    #[option(name = "digital-art", value = "digital-art")]
-    DigitalArt,
-    #[option(name = "enhance", value = "enhance")]
-    Enhance,
-    #[option(name = "fantasy-art", value = "fantasy-art")]
-    FantasyArt,
-    #[option(name = "isometric", value = "isometric")]
-    Isometric,
-    #[option(name = "line-art", value = "line-art")]
-    LineArt,
-    #[option(name = "low-poly", value = "low-poly")]
-    LowPoly,
-    #[option(name = "modeling-compound", value = "modeling-compound")]
-    ModelingCompound,
-    #[option(name = "neon-punk", value = "neon-punk")]
-    NeonPunk,
-    #[option(name = "origami", value = "origami")]
-    Origami,
-    #[option(name = "photographic", value = "photographic")]
-    Photographic,
-    #[option(name = "pixel-art", value = "pixel-art")]
-    PixelArt,
-    #[option(name = "tile-texture", value = "tile-texture")]
-    TileTexture,
-}
-
 #[derive(CommandModel, CreateCommand)]
-#[command(name = "dream", desc = "Create an image with Stable Diffusion")]
+#[command(name = "dream", desc = "Create an image with Imagen")]
 pub struct DreamCommand {
     /// Prompt for the model to generate.
     prompt: String,
     /// Select an aspect ratio. Uses 1:1 by default.
-    aspect_ratio: Option<StableRatio>,
-    /// Guide the model towards a particular style.
-    style: Option<StableStyle>,
+    aspect_ratio: Option<ImagenAspectRatio>,
 }
 
 struct DreamParams<'a> {
     prompt: &'a str,
     aspect_ratio: &'a str,
-    style: Option<&'a str>,
+}
+
+#[derive(Deserialize)]
+struct ImagenResponse {
+    predictions: Vec<ImagenPrediction>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ImagenPrediction {
+    bytes_base64_encoded: String,
 }
 
 #[async_trait]
@@ -97,12 +71,9 @@ impl CommandHandler for DreamCommand {
             None => "1:1",
         };
 
-        let style = self.style.as_ref().map(|s| s.value());
-
         let dream_params = DreamParams {
             prompt,
             aspect_ratio,
-            style,
         };
 
         interaction_client
@@ -125,34 +96,48 @@ impl CommandHandler for DreamCommand {
             .await
             .ok();
 
-        let e = match dream(
-            &reqwest_client,
-            &dream_params,
-            &interaction_client,
-            interaction_token,
-        )
-        .await
-        {
-            Ok(_) => {
-                return;
-            }
-            Err(e) => e,
-        };
+        match dream(&reqwest_client, &dream_params).await {
+            Ok((image, key_used)) => {
+                let filename = "image.png".to_string();
+                let footer_text = format!("Model: Imagen | Key: {}", key_used);
+                let footer = EmbedFooterBuilder::new(footer_text).build();
 
-        interaction_client
-            .update_response(interaction_token)
-            .embeds(Some(&[EmbedBuilder::new()
-                .title("Failed")
-                .color(0xe53935)
-                .field(EmbedFieldBuilder::new("Prompt", prompt))
-                .field(details_field(&dream_params))
-                .field(EmbedFieldBuilder::new(
-                    "Error",
-                    format!("```\n{}\n```", e.message),
-                ))
-                .build()]))
-            .await
-            .ok();
+                interaction_client
+                    .update_response(interaction_token)
+                    .embeds(Some(&[EmbedBuilder::new()
+                        .title("Completed")
+                        .color(0x43a047)
+                        .field(EmbedFieldBuilder::new("Prompt", prompt))
+                        .field(details_field(&dream_params))
+                        .footer(footer)
+                        .image(ImageSource::attachment(&filename).unwrap())
+                        .build()]))
+                    .await
+                    .ok();
+
+                interaction_client
+                    .update_response(interaction_token)
+                    .attachments(&[Attachment::from_bytes(filename, image, 1)])
+                    .await
+                    .ok();
+            }
+            Err(e) => {
+                interaction_client
+                    .update_response(interaction_token)
+                    .embeds(Some(&[EmbedBuilder::new()
+                        .title("Failed")
+                        .color(0xe53935)
+                        .field(EmbedFieldBuilder::new("Prompt", prompt))
+                        .field(details_field(&dream_params))
+                        .field(EmbedFieldBuilder::new(
+                            "Error",
+                            format!("```\n{}\n```", e.message),
+                        ))
+                        .build()]))
+                    .await
+                    .ok();
+            }
+        };
     }
 }
 
@@ -161,94 +146,54 @@ struct DreamError {
 }
 
 fn details_field(dream_params: &DreamParams) -> EmbedFieldBuilder {
-    let style = dream_params.style.unwrap_or("none");
-    EmbedFieldBuilder::new(
-        "Style, Aspect Ratio",
-        format!("{}, {}", style, dream_params.aspect_ratio),
-    )
+    EmbedFieldBuilder::new("Aspect Ratio", dream_params.aspect_ratio.to_string())
 }
 
 async fn dream(
     reqwest_client: &Client,
     dream_params: &DreamParams<'_>,
-    interaction_client: &InteractionClient<'_>,
-    interaction_token: &str,
-) -> Result<(), DreamError> {
+) -> Result<(Vec<u8>, &'static str), DreamError> {
     let prompt = dream_params.prompt;
     let aspect_ratio = dream_params.aspect_ratio;
-    let style = dream_params.style;
-    let form = multipart::Form::new()
-        .text("prompt", prompt.to_string())
-        .text("aspect_ratio", aspect_ratio.to_string())
-        .text("output_format", "webp");
 
-    let form = match style {
-        Some(s) => form.text("style_preset", s.to_string()),
-        None => form,
-    };
-
-    let submit_request = reqwest_client
-        .post("https://api.stability.ai/v2beta/stable-image/generate/core")
-        .header(
-            "Authorization",
-            format!("Bearer {}", env::var("STABLE_KEY").unwrap()),
-        )
-        .header("Accept", "image/*")
-        .multipart(form)
-        .send()
-        .await;
-
-    let response = match submit_request {
-        Ok(r) => r,
-        Err(e) => {
-            return Err(DreamError {
-                message: format!("{:#?}", e),
-            });
+    let request_body = json!({
+        "instances": [
+            { "prompt": prompt }
+        ],
+        "parameters": {
+            "sampleCount": 1,
+            "aspectRatio": aspect_ratio,
         }
-    };
+    });
 
-    let status_code = response.status();
-    if status_code != StatusCode::OK {
-        return Err(DreamError {
-            message: format!(
-                "Status Code: {}\n{:#?}",
-                status_code,
-                response
-                    .text()
-                    .await
-                    .unwrap_or("Failed to parse response bytes".to_string())
-            ),
-        });
-    }
+    let api_url =
+        "https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict";
 
-    let image = match response.bytes().await {
-        Ok(img) => img.to_vec(),
-        Err(e) => {
-            return Err(DreamError {
-                message: format!("{:#?}", e),
-            });
-        }
-    };
-
-    let filename = "image.webp".to_string();
-
-    interaction_client
-        .update_response(interaction_token)
-        .embeds(Some(&[EmbedBuilder::new()
-            .title("Completed")
-            .color(0x43a047)
-            .field(EmbedFieldBuilder::new("Prompt", prompt))
-            .field(details_field(&dream_params))
-            .image(ImageSource::attachment(&filename).unwrap())
-            .build()]))
+    let (text, key_name) = post_generative_ai(reqwest_client, api_url, &request_body)
         .await
-        .ok();
+        .map_err(|e: GoogleAiError| DreamError { message: e.message })?;
 
-    interaction_client
-        .update_response(interaction_token)
-        .attachments(&[Attachment::from_bytes(filename, image, 1)])
-        .await
-        .ok();
+    let imagen_response: ImagenResponse = serde_json::from_str(&text).map_err(|e| DreamError {
+        message: format!(
+            "JSON Parse Error with key {}: {}\nResponse: {}",
+            key_name, e, text
+        ),
+    })?;
 
-    return Ok(());
+    let base64_image = imagen_response
+        .predictions
+        .get(0)
+        .ok_or(DreamError {
+            message: "No predictions in response".to_string(),
+        })?
+        .bytes_base64_encoded
+        .clone();
+
+    let image = general_purpose::STANDARD
+        .decode(base64_image)
+        .map_err(|e| DreamError {
+            message: format!("Base64 Decode Error: {}", e),
+        })?;
+
+    Ok((image, key_name))
 }
