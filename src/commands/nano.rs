@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use base64::{engine::general_purpose, DecodeError, Engine as _};
 use image::{DynamicImage, GenericImageView, ImageError, ImageFormat};
 use log::{error, info};
-use reqwest::{Client, StatusCode};
+use reqwest::Client;
 use serde::Deserialize;
 use serde_json::json;
 use twilight_http::client::InteractionClient;
@@ -23,7 +23,7 @@ use twilight_util::builder::embed::{
 use twilight_validate::message::MessageValidationError;
 
 use crate::activity::get_random_qoute;
-use crate::commands::google_ai::{post_generative_ai, GoogleAiError};
+use crate::commands::google_ai::{post_generative_ai, GoogleAiError, GOOGLE_API_FREE_KEY, GOOGLE_API_PAID_KEY};
 
 use super::{CommandHandler, CommandHandlerData};
 
@@ -186,7 +186,7 @@ impl NanoCommand {
         )
         .await
         {
-            Ok((output, key_used)) => {
+            Ok((output, tier_used)) => {
                 info!("nano function returned Ok. Preparing final update for followup.");
                 send_success_followup(
                     &client,
@@ -194,7 +194,7 @@ impl NanoCommand {
                     followup_id,
                     output,
                     &model_name,
-                    key_used,
+                    tier_used,
                 )
                 .await?;
                 info!("Final update sent successfully.");
@@ -295,9 +295,9 @@ async fn send_success_followup(
     id: Id<MessageMarker>,
     output: NanoOutput,
     model_name: &str,
-    key_used: &str,
+    tier_used: &str,
 ) -> Result<(), Error> {
-    let footer_text = format!("Model: {} | Key: {}", model_name, key_used);
+    let footer_text = format!("Model: {} | Tier: {}", model_name, tier_used);
     let footer = EmbedFooterBuilder::new(footer_text).build();
     let mut embed_builder = EmbedBuilder::new()
         .title("Completed")
@@ -403,8 +403,6 @@ struct PromptFeedback {
     block_reason: Option<String>,
 }
 
-use crate::commands::google_ai::{post_generative_ai, GoogleAiError};
-
 fn image_to_json_part(image: &DynamicImage) -> Result<serde_json::Value, ImageError> {
     let mut buf = Cursor::new(Vec::new());
     image.write_to(&mut buf, ImageFormat::Png)?;
@@ -439,15 +437,18 @@ async fn nano(
         model_name
     );
 
-    let (text, key_name) =
-        post_generative_ai(reqwest_client, &api_url, &request_body)
+    let keys_to_try = [GOOGLE_API_FREE_KEY, GOOGLE_API_PAID_KEY];
+    let google_ai_response =
+        post_generative_ai(reqwest_client, &api_url, &request_body, &keys_to_try)
             .await
             .map_err(|e: GoogleAiError| NanoError { message: e.message })?;
+    let text = google_ai_response.text;
+    let tier_used = google_ai_response.tier_used;
 
     let gemini_response: GeminiResponse = serde_json::from_str(&text).map_err(|e| NanoError {
         message: format!(
-            "JSON Parse Error with key {}: {}\nResponse: {}",
-            key_name, e, text
+            "JSON Parse Error with tier {}: {}\nResponse: {}",
+            tier_used, e, text
         ),
     })?;
 
@@ -487,7 +488,6 @@ async fn nano(
         });
     }
 
-    // Success with the current key
     let output = NanoOutput { text, image };
-    return Ok((output, key_name));
+    return Ok((output, tier_used));
 }

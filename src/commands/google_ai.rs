@@ -9,16 +9,37 @@ pub struct GoogleAiError {
     pub message: String,
 }
 
-pub async fn post_generative_ai(
+pub struct GoogleApiKey<'a> {
+    pub tier: &'a str,
+    pub env_var: &'a str,
+}
+
+pub const GOOGLE_API_FREE_KEY: GoogleApiKey = GoogleApiKey {
+    tier: "free",
+    env_var: "GOOGLE_API_FREE_KEY",
+};
+
+pub const GOOGLE_API_PAID_KEY: GoogleApiKey = GoogleApiKey {
+    tier: "paid",
+    env_var: "GOOGLE_API_PAID_KEY",
+};
+
+pub struct GoogleAiResponse<'a> {
+    pub text: String,
+    pub tier_used: &'a str,
+}
+
+pub async fn post_generative_ai<'a>(
     reqwest_client: &Client,
     api_url: &str,
     request_body: &Value,
-) -> Result<(String, &'static str), GoogleAiError> {
-    let keys_to_try = [("free", "GEMINI_API_FREE_KEY"), ("paid", "GEMINI_API_KEY")];
+    keys_to_try: &[GoogleApiKey<'a>],
+) -> Result<GoogleAiResponse<'a>, GoogleAiError> {
     let mut last_error_message = "No API keys configured or all attempts failed".to_string();
 
-    for (key_name, env_var) in keys_to_try {
-        let api_key = match env::var(env_var) {
+    for google_api_key in keys_to_try {
+        let key_tier = google_api_key.tier;
+        let api_key = match env::var(google_api_key.env_var) {
             Ok(key) if !key.is_empty() => key,
             _ => continue,
         };
@@ -33,7 +54,7 @@ pub async fn post_generative_ai(
         let response = match response_result {
             Ok(resp) => resp,
             Err(e) => {
-                last_error_message = format!("Request failed with key {}: {}", key_name, e);
+                last_error_message = format!("Request failed with key {}: {}", key_tier, e);
                 info!("{}", last_error_message);
                 continue;
             }
@@ -45,13 +66,18 @@ pub async fn post_generative_ai(
         if !status_code.is_success() {
             last_error_message = format!(
                 "API Error with key {} ({}):\n{}",
-                key_name, status_code, text
+                key_tier, status_code, text
             );
             info!("{}", last_error_message);
             continue;
         }
 
-        return Ok((text, key_name));
+        return Ok(
+            GoogleAiResponse {
+                text,
+                tier_used: key_tier,
+            }
+        );
     }
 
     Err(GoogleAiError {

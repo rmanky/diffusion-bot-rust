@@ -3,7 +3,6 @@ use base64::{engine::general_purpose, Engine as _};
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::json;
-use twilight_http::client::InteractionClient;
 use twilight_interactions::command::{CommandModel, CommandOption, CreateCommand, CreateOption};
 use twilight_model::http::attachment::Attachment;
 use twilight_model::http::interaction::{
@@ -16,7 +15,7 @@ use twilight_model::id::Id;
 use twilight_util::builder::embed::{EmbedBuilder, EmbedFieldBuilder, EmbedFooterBuilder, ImageSource};
 
 use super::{CommandHandler, CommandHandlerData};
-use crate::commands::google_ai::{post_generative_ai, GoogleAiError};
+use crate::commands::google_ai::{post_generative_ai, GoogleAiError, GOOGLE_API_PAID_KEY};
 
 #[derive(CommandOption, CreateOption)]
 enum ImagenAspectRatio {
@@ -97,9 +96,9 @@ impl CommandHandler for DreamCommand {
             .ok();
 
         match dream(&reqwest_client, &dream_params).await {
-            Ok((image, key_used)) => {
+            Ok((image, tier_used)) => {
                 let filename = "image.png".to_string();
-                let footer_text = format!("Model: Imagen | Key: {}", key_used);
+                let footer_text = format!("Model: imagen-4.0-generate-001 | Tier: {}", tier_used);
                 let footer = EmbedFooterBuilder::new(footer_text).build();
 
                 interaction_client
@@ -163,20 +162,23 @@ async fn dream(
         "parameters": {
             "sampleCount": 1,
             "aspectRatio": aspect_ratio,
+            "personGeneration": "allow_all"
         }
     });
 
     let api_url =
         "https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict";
 
-    let (text, key_name) = post_generative_ai(reqwest_client, api_url, &request_body)
+    let google_ai_response = post_generative_ai(reqwest_client, api_url, &request_body, &[GOOGLE_API_PAID_KEY])
         .await
         .map_err(|e: GoogleAiError| DreamError { message: e.message })?;
+    let text = google_ai_response.text;
+    let tier_used = google_ai_response.tier_used;
 
     let imagen_response: ImagenResponse = serde_json::from_str(&text).map_err(|e| DreamError {
         message: format!(
-            "JSON Parse Error with key {}: {}\nResponse: {}",
-            key_name, e, text
+            "JSON Parse Error with tier {}: {}\nResponse: {}",
+            tier_used, e, text
         ),
     })?;
 
@@ -195,5 +197,5 @@ async fn dream(
             message: format!("Base64 Decode Error: {}", e),
         })?;
 
-    Ok((image, key_name))
+    Ok((image, tier_used))
 }

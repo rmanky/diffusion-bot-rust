@@ -13,7 +13,8 @@
     {
       devShells.x86_64-linux.default = pkgs.mkShell {
         packages = [
-          pkgs.rustup
+          pkgs.rustc
+          pkgs.cargo
           pkgs.flyctl
           pkgs.pkg-config
           pkgs.openssl
