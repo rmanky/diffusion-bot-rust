@@ -13,6 +13,7 @@ use twilight_model::{
 
 mod activity;
 mod commands;
+pub mod embed;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {

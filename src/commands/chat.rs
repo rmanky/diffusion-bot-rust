@@ -1,22 +1,22 @@
 use async_trait::async_trait;
-use log::info;
 use reqwest::Client;
 use reqwest_eventsource::{Event, EventSource};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::json;
 use std::env;
 use std::time::Duration;
 use std::time::Instant;
 use tokio_stream::StreamExt;
 use twilight_http::client::InteractionClient;
 use twilight_interactions::command::{CommandModel, CreateCommand};
-use twilight_model::channel::message::Embed;
 use twilight_model::http::interaction::{
     InteractionResponse, InteractionResponseData, InteractionResponseType,
 };
 use twilight_model::id::marker::InteractionMarker;
 use twilight_model::id::Id;
-use twilight_util::builder::embed::{EmbedBuilder, EmbedFieldBuilder, EmbedFooterBuilder};
+use twilight_util::builder::embed::{EmbedFieldBuilder, EmbedFooterBuilder};
+
+use crate::embed;
 
 use super::{CommandHandler, CommandHandlerData};
 
@@ -47,9 +47,7 @@ impl CommandHandler for ChatCommand {
                 &(InteractionResponse {
                     kind: InteractionResponseType::ChannelMessageWithSource,
                     data: Some(InteractionResponseData {
-                        embeds: Some(vec![EmbedBuilder::new()
-                            .title("Chatting")
-                            .color(0x673ab7)
+                        embeds: Some(vec![embed::pending("Chatting", "")
                             .field(EmbedFieldBuilder::new("Prompt", prompt))
                             .build()]),
                         ..Default::default()
@@ -76,12 +74,8 @@ impl CommandHandler for ChatCommand {
         interaction_client
             .update_response(interaction_token)
             .embeds(Some(&[
-                prompt_embed(prompt, "UNKNOWN"),
-                EmbedBuilder::new()
-                    .title("Failed")
-                    .color(0xe53935)
-                    .description(format!("```\n{}\n```", e.message))
-                    .build(),
+                embed::prompt(prompt).build(),
+                embed::failure(&e.message).build(),
             ]))
             .await
             .ok();
@@ -101,15 +95,6 @@ struct ReplicateSubmit {
 
 struct ChatError {
     message: String,
-}
-
-fn prompt_embed(prompt: &str, id: &str) -> Embed {
-    EmbedBuilder::new()
-        .title("Prompt")
-        .color(0x43a047)
-        .description(prompt)
-        .footer(EmbedFooterBuilder::new(id))
-        .build()
 }
 
 async fn chat(
@@ -176,11 +161,10 @@ async fn chat(
                         interaction_client
                             .update_response(interaction_token)
                             .embeds(Some(&[
-                                prompt_embed(prompt, prediction_id),
-                                EmbedBuilder::new()
-                                    .title("Processing...")
-                                    .color(0x5e35b1)
-                                    .description(truncated_output)
+                                embed::prompt(prompt)
+                                    .footer(EmbedFooterBuilder::new(prediction_id))
+                                    .build(),
+                                embed::pending("Processing...", &truncated_output)
                                     .footer(EmbedFooterBuilder::new(prediction_id))
                                     .build(),
                             ]))
@@ -218,11 +202,10 @@ async fn chat(
         interaction_client
             .update_response(interaction_token)
             .embeds(Some(&[
-                prompt_embed(prompt, prediction_id),
-                EmbedBuilder::new()
-                    .title("Error")
-                    .color(0xe53935)
-                    .description("The model finished but generated no output.")
+                embed::prompt(prompt)
+                    .footer(EmbedFooterBuilder::new(prediction_id))
+                    .build(),
+                embed::failure("The model finished but generated no output.")
                     .footer(EmbedFooterBuilder::new(prediction_id))
                     .build(),
             ]))
@@ -236,10 +219,10 @@ async fn chat(
         interaction_client
             .update_response(interaction_token)
             .embeds(Some(&[
-                prompt_embed(prompt, prediction_id),
-                EmbedBuilder::new()
-                    .title("Succeeded")
-                    .color(0x43a047)
+                embed::prompt(prompt)
+                    .footer(EmbedFooterBuilder::new(prediction_id))
+                    .build(),
+                embed::success()
                     .description(full_output)
                     .footer(EmbedFooterBuilder::new(prediction_id))
                     .build(),

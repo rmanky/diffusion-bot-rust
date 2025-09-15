@@ -5,9 +5,10 @@ use twilight_model::http::interaction::{
 };
 use twilight_model::id::marker::InteractionMarker;
 use twilight_model::id::Id;
-use twilight_util::builder::embed::{EmbedBuilder, ImageSource};
+use twilight_util::builder::embed::ImageSource;
 
 use super::{CommandHandler, CommandHandlerData};
+use crate::embed;
 
 #[derive(CommandModel, CreateCommand)]
 #[command(name = "info", desc = "Display general information about the bot")]
@@ -29,13 +30,12 @@ impl CommandHandler for InfoCommand {
                 &(InteractionResponse {
                     kind: InteractionResponseType::ChannelMessageWithSource,
                     data: Some(InteractionResponseData {
-                        embeds: Some(vec![EmbedBuilder::new()
+                        embeds: Some(vec![embed::info()
                             .title("Nano-Banana")
                             .image(ImageSource::url("https://i.ibb.co/WvRg3ccW/image.png").unwrap())
                             .description(
                                 "The latest and greatest from the Big G, now available via `/nano`.\n_this costs me $0.04 per image so plz don't spam okay thx bye_",
                             )
-                            .color(0xc2185b)
                             .build()]),
                         ..Default::default()
                     }),

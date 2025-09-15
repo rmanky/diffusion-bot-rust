@@ -1,5 +1,6 @@
 use async_trait::async_trait;
-use base64::{engine::general_purpose, Engine as _};
+use base64::engine::general_purpose;
+use base64::Engine;
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::json;
@@ -10,12 +11,11 @@ use twilight_model::http::interaction::{
 };
 use twilight_model::id::marker::InteractionMarker;
 use twilight_model::id::Id;
-use twilight_util::builder::embed::{
-    EmbedBuilder, EmbedFieldBuilder, EmbedFooterBuilder, ImageSource,
-};
+use twilight_util::builder::embed::{EmbedFieldBuilder, EmbedFooterBuilder, ImageSource};
 
 use super::{CommandHandler, CommandHandlerData};
 use crate::commands::google_ai::{post_generative_ai, GoogleAiError, GOOGLE_API_PAID_KEY};
+use crate::embed;
 
 #[derive(CommandOption, CreateOption)]
 enum ImagenAspectRatio {
@@ -82,9 +82,7 @@ impl CommandHandler for DreamCommand {
                 &(InteractionResponse {
                     kind: InteractionResponseType::ChannelMessageWithSource,
                     data: Some(InteractionResponseData {
-                        embeds: Some(vec![EmbedBuilder::new()
-                            .title("Dreaming")
-                            .color(0x673ab7)
+                        embeds: Some(vec![embed::pending("Dreaming", "")
                             .field(EmbedFieldBuilder::new("Prompt", prompt))
                             .field(details_field(&dream_params))
                             .build()]),
@@ -103,9 +101,7 @@ impl CommandHandler for DreamCommand {
 
                 interaction_client
                     .update_response(interaction_token)
-                    .embeds(Some(&[EmbedBuilder::new()
-                        .title("Completed")
-                        .color(0x43a047)
+                    .embeds(Some(&[embed::success()
                         .field(EmbedFieldBuilder::new("Prompt", prompt))
                         .field(details_field(&dream_params))
                         .footer(footer)
@@ -123,15 +119,9 @@ impl CommandHandler for DreamCommand {
             Err(e) => {
                 interaction_client
                     .update_response(interaction_token)
-                    .embeds(Some(&[EmbedBuilder::new()
-                        .title("Failed")
-                        .color(0xe53935)
+                    .embeds(Some(&[embed::failure(&e.message)
                         .field(EmbedFieldBuilder::new("Prompt", prompt))
                         .field(details_field(&dream_params))
-                        .field(EmbedFieldBuilder::new(
-                            "Error",
-                            format!("```\n{}\n```", e.message),
-                        ))
                         .build()]))
                     .await
                     .ok();
@@ -182,7 +172,7 @@ async fn dream(
 
     let imagen_response: ImagenResponse = serde_json::from_str(&text).map_err(|e| DreamError {
         message: format!(
-            "JSON Parse Error with tier {}: {}\nResponse: {}",
+            "JSON Parse Error with tier {} {}: \nResponse: {}",
             tier_used, e, text
         ),
     })?;

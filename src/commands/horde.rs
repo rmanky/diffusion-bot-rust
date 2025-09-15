@@ -15,11 +15,10 @@ use twilight_model::http::interaction::{
 };
 use twilight_model::id::marker::InteractionMarker;
 use twilight_model::id::Id;
-use twilight_util::builder::embed::{
-    EmbedBuilder, EmbedFieldBuilder, EmbedFooterBuilder, ImageSource,
-};
+use twilight_util::builder::embed::{EmbedFieldBuilder, EmbedFooterBuilder, ImageSource};
 
 use super::{CommandHandler, CommandHandlerData};
+use crate::embed;
 
 #[derive(Debug, PartialEq)]
 enum Status {
@@ -131,14 +130,17 @@ impl CommandHandler for HordeCommand {
                 &InteractionResponse {
                     kind: InteractionResponseType::ChannelMessageWithSource,
                     data: Some(InteractionResponseData {
-                        embeds: Some(vec![embed_with_prompt_and_model(
-                            "Submitting",
-                            0xF4511E,
-                            prompt,
-                            model_name,
-                            nsfw,
-                        )
-                        .build()]),
+                        embeds: Some(vec![embed::pending("Submitting", "")
+                            .field(EmbedFieldBuilder::new("Prompt", prompt))
+                            .field(EmbedFieldBuilder::new("Model", model_name))
+                            .field(EmbedFieldBuilder::new(
+                                "NSFW",
+                                match nsfw {
+                                    true => "True",
+                                    false => "False",
+                                },
+                            ))
+                            .build()]),
                         ..Default::default()
                     }),
                 },
@@ -161,17 +163,17 @@ impl CommandHandler for HordeCommand {
             Err(e) => {
                 interaction_client
                     .update_response(interaction_token)
-                    .embeds(Some(&[embed_with_prompt_and_model(
-                        "Failed", 0xE53935, prompt, model_name, nsfw,
-                    )
-                    .field(EmbedFieldBuilder::new(
-                        "Error",
-                        format!(
-                            "An exception was caught to save the bot from crashing:\n`{}`",
-                            e.message
-                        ),
-                    ))
-                    .build()]))
+                    .embeds(Some(&[embed::failure(&e.message)
+                        .field(EmbedFieldBuilder::new("Prompt", prompt))
+                        .field(EmbedFieldBuilder::new("Model", model_name))
+                        .field(EmbedFieldBuilder::new(
+                            "NSFW",
+                            match nsfw {
+                                true => "True",
+                                false => "False",
+                            },
+                        ))
+                        .build()]))
                     .await
                     .ok();
             }
@@ -235,15 +237,18 @@ async fn horde(
 
     interaction_client
         .update_response(interaction_token)
-        .embeds(Some(&[embed_with_prompt_and_model(
-            "Submitted",
-            0x00897B,
-            prompt,
-            model_name,
-            nsfw,
-        )
-        .footer(EmbedFooterBuilder::new(&id))
-        .build()]))
+        .embeds(Some(&[embed::pending("Submitted", "")
+            .field(EmbedFieldBuilder::new("Prompt", prompt))
+            .field(EmbedFieldBuilder::new("Model", model_name))
+            .field(EmbedFieldBuilder::new(
+                "NSFW",
+                match nsfw {
+                    true => "True",
+                    false => "False",
+                },
+            ))
+            .footer(EmbedFooterBuilder::new(&id))
+            .build()]))
         .await
         .ok();
 
@@ -269,23 +274,26 @@ async fn horde(
 
     interaction_client
         .update_response(interaction_token)
-        .embeds(Some(&[embed_with_prompt_and_model(
-            "Completed",
-            0x43A047,
-            prompt,
-            model_name,
-            nsfw,
-        )
-        .field(EmbedFieldBuilder::new(
-            "Info",
-            format!(
-                "Your request was completed by worker `{}`",
-                generation.worker_name
-            ),
-        ))
-        .image(ImageSource::attachment("image.webp").unwrap())
-        .footer(EmbedFooterBuilder::new(&id))
-        .build()]))
+        .embeds(Some(&[embed::success()
+            .field(EmbedFieldBuilder::new("Prompt", prompt))
+            .field(EmbedFieldBuilder::new("Model", model_name))
+            .field(EmbedFieldBuilder::new(
+                "NSFW",
+                match nsfw {
+                    true => "True",
+                    false => "False",
+                },
+            ))
+            .field(EmbedFieldBuilder::new(
+                "Info",
+                format!(
+                    "Your request was completed by worker `{}`",
+                    generation.worker_name
+                ),
+            ))
+            .image(ImageSource::attachment("image.webp").unwrap())
+            .footer(EmbedFooterBuilder::new(&id))
+            .build()]))
         .await
         .ok();
 
@@ -359,18 +367,25 @@ async fn poll_status(
         if status != Status::Finished {
             interaction_client
                 .update_response(interaction_token)
-                .embeds(Some(&[embed_with_prompt_and_model(
-                    "Pending", 0x5E35B1, prompt, model_name, nsfw,
-                )
-                .field(EmbedFieldBuilder::new(
-                    "Status",
-                    format!(
-                        "**{:#?}**\nWait time is {} seconds.\nQueue position is {}.",
-                        status, poll_response.wait_time, poll_response.queue_position
-                    ),
-                ))
-                .footer(EmbedFooterBuilder::new(id))
-                .build()]))
+                .embeds(Some(&[embed::pending("Pending", "")
+                    .field(EmbedFieldBuilder::new("Prompt", prompt))
+                    .field(EmbedFieldBuilder::new("Model", model_name))
+                    .field(EmbedFieldBuilder::new(
+                        "NSFW",
+                        match nsfw {
+                            true => "True",
+                            false => "False",
+                        },
+                    ))
+                    .field(EmbedFieldBuilder::new(
+                        "Status",
+                        format!(
+                            "**{:#?}**\nWait time is {} seconds.\nQueue position is {}.",
+                            status, poll_response.wait_time, poll_response.queue_position
+                        ),
+                    ))
+                    .footer(EmbedFooterBuilder::new(id))
+                    .build()]))
                 .await
                 .ok();
             continue;
@@ -409,25 +424,4 @@ async fn poll_status(
             }
         };
     }
-}
-
-fn embed_with_prompt_and_model(
-    title: &str,
-    color: u32,
-    prompt: &str,
-    model_name: &str,
-    nsfw: bool,
-) -> EmbedBuilder {
-    EmbedBuilder::new()
-        .title(title)
-        .color(color)
-        .field(EmbedFieldBuilder::new("Prompt", prompt))
-        .field(EmbedFieldBuilder::new("Model", model_name))
-        .field(EmbedFieldBuilder::new(
-            "NSFW",
-            match nsfw {
-                true => "True",
-                false => "False",
-            },
-        ))
 }

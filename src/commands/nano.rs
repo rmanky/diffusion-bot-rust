@@ -23,7 +23,10 @@ use twilight_util::builder::embed::{
 use twilight_validate::message::MessageValidationError;
 
 use crate::activity::get_random_qoute;
-use crate::commands::google_ai::{post_generative_ai, GoogleAiError, GOOGLE_API_FREE_KEY, GOOGLE_API_PAID_KEY};
+use crate::commands::google_ai::{
+    post_generative_ai, GoogleAiError, GOOGLE_API_FREE_KEY, GOOGLE_API_PAID_KEY,
+};
+use crate::embed;
 
 use super::{CommandHandler, CommandHandlerData};
 
@@ -238,10 +241,7 @@ fn build_prompt_display(
     main_img: Option<&DynamicImage>,
     sec_img: Option<&DynamicImage>,
 ) -> Result<(EmbedBuilder, Option<HttpAttachment>), ImageError> {
-    let mut embed = EmbedBuilder::new()
-        .title("Prompt Details")
-        .color(0x5865f2)
-        .field(EmbedFieldBuilder::new("Prompt", prompt));
+    let mut embed = embed::prompt(prompt);
 
     let attachment_data = match (main_img, sec_img) {
         (Some(main), Some(sec)) => {
@@ -275,11 +275,7 @@ async fn create_generating_followup(
     client: &InteractionClient<'_>,
     token: &str,
 ) -> Result<Id<MessageMarker>, Error> {
-    let embed = EmbedBuilder::new()
-        .title("Generating...")
-        .description(get_random_qoute())
-        .color(0x673ab7)
-        .build();
+    let embed = embed::pending("Generating...", &get_random_qoute()).build();
     let followup = client
         .create_followup(token)
         .embeds(&[embed])
@@ -299,10 +295,7 @@ async fn send_success_followup(
 ) -> Result<(), Error> {
     let footer_text = format!("Model: {} | Tier: {}", model_name, tier_used);
     let footer = EmbedFooterBuilder::new(footer_text).build();
-    let mut embed_builder = EmbedBuilder::new()
-        .title("Completed")
-        .color(0x43a047)
-        .footer(footer);
+    let mut embed_builder = embed::success().footer(footer);
 
     if let Some(text) = output.text {
         embed_builder = embed_builder.field(EmbedFieldBuilder::new("Response", text));
@@ -345,14 +338,7 @@ async fn send_error_message(
         error_message.push_str("...");
     }
 
-    let embed = EmbedBuilder::new()
-        .title("Failed")
-        .color(0xe53935)
-        .field(EmbedFieldBuilder::new(
-            "Error",
-            format!("```\n{}\n```", error_message),
-        ))
-        .build();
+    let embed = embed::failure(&error_message).build();
 
     if let Some(id) = followup_id {
         if let Err(e) = client
@@ -447,7 +433,8 @@ async fn nano(
 
     let gemini_response: GeminiResponse = serde_json::from_str(&text).map_err(|e| NanoError {
         message: format!(
-            "JSON Parse Error with tier {}: {}\nResponse: {}",
+            "JSON Parse Error with tier {}: {}
+Response: {}",
             tier_used, e, text
         ),
     })?;
