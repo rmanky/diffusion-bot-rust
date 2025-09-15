@@ -31,10 +31,10 @@ impl CommandHandler for InfoCommand {
                     kind: InteractionResponseType::ChannelMessageWithSource,
                     data: Some(InteractionResponseData {
                         embeds: Some(vec![embed::info()
-                            .title("Nano-Banana")
-                            .image(ImageSource::url("https://i.ibb.co/WvRg3ccW/image.png").unwrap())
+                            .title("Image(n) A World")
+                            .image(ImageSource::url("https://i.ibb.co/yB8nRPKc/image.png").unwrap())
                             .description(
-                                "The latest and greatest from the Big G, now available via `/nano`.\n_this costs me $0.04 per image so plz don't spam okay thx bye_",
+                                "`/dream` is now Imagen 4. It's like Imagen 3, but better.`",
                             )
                             .build()]),
                         ..Default::default()
