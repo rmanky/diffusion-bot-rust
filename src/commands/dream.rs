@@ -14,8 +14,8 @@ use twilight_model::id::Id;
 use twilight_util::builder::embed::{EmbedFieldBuilder, EmbedFooterBuilder, ImageSource};
 
 use super::{CommandHandler, CommandHandlerData};
-use crate::commands::google_ai::{post_generative_ai, GoogleAiError, GOOGLE_API_PAID_KEY};
-use crate::embed;
+use crate::utils::embed;
+use crate::utils::google_ai::{post_generative_ai, GoogleAiError, GOOGLE_API_PAID_KEY};
 
 #[derive(CommandOption, CreateOption)]
 enum ImagenAspectRatio {

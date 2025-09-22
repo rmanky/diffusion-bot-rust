@@ -23,10 +23,10 @@ use twilight_util::builder::embed::{
 use twilight_validate::message::MessageValidationError;
 
 use crate::activity::get_random_qoute;
-use crate::commands::google_ai::{
+use crate::utils::embed;
+use crate::utils::google_ai::{
     post_generative_ai, GoogleAiError, GOOGLE_API_FREE_KEY, GOOGLE_API_PAID_KEY,
 };
-use crate::embed;
 
 use super::{CommandHandler, CommandHandlerData};
 

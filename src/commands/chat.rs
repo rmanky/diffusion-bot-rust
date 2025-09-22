@@ -16,7 +16,7 @@ use twilight_model::id::marker::InteractionMarker;
 use twilight_model::id::Id;
 use twilight_util::builder::embed::{EmbedFieldBuilder, EmbedFooterBuilder};
 
-use crate::embed;
+use crate::utils::embed;
 
 use super::{CommandHandler, CommandHandlerData};
 

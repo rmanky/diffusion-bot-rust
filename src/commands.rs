@@ -16,7 +16,7 @@ use twilight_model::{
 
 use self::{
     chat::ChatCommand, dream::DreamCommand, horde::HordeCommand, info::InfoCommand,
-    nano::NanoCommand,
+    nano::NanoCommand, stats::StatsCommand,
 };
 
 mod chat;
@@ -24,12 +24,13 @@ mod dream;
 mod horde;
 mod info;
 mod nano;
-mod google_ai;
+mod stats;
 
 pub struct CommandHandlerData<'a> {
     pub channel: Channel,
     pub reqwest_client: ReqwestClient,
     pub interaction_client: InteractionClient<'a>,
+    pub twilight_client: &'a TwilightClient,
 }
 
 #[async_trait]
@@ -66,6 +67,7 @@ impl CommandDelegate for CommandDelegateData {
             InfoCommand::create_command(),
             ChatCommand::create_command(),
             NanoCommand::create_command(),
+            StatsCommand::create_command(),
         ]
         .map(std::convert::Into::into)
         .to_vec()
@@ -89,6 +91,7 @@ impl CommandDelegate for CommandDelegateData {
                 channel,
                 interaction_client: self.twilight_client.interaction(application_id),
                 reqwest_client: self.reqwest_client.to_owned(),
+                twilight_client: &self.twilight_client,
             };
 
             match command_data.name.as_str() {
@@ -146,6 +149,19 @@ impl CommandDelegate for CommandDelegateData {
                     if let Ok(nano_command) = NanoCommand::from_interaction((*command_data).into())
                     {
                         nano_command
+                            .handle_command(
+                                command_handler_data,
+                                interaction.id,
+                                &interaction.token,
+                            )
+                            .await
+                    }
+                }
+                "stats" => {
+                    if let Ok(stats_command) =
+                        StatsCommand::from_interaction((*command_data).into())
+                    {
+                        stats_command
                             .handle_command(
                                 command_handler_data,
                                 interaction.id,

@@ -18,7 +18,7 @@ use twilight_model::id::Id;
 use twilight_util::builder::embed::{EmbedFieldBuilder, EmbedFooterBuilder, ImageSource};
 
 use super::{CommandHandler, CommandHandlerData};
-use crate::embed;
+use crate::utils::embed;
 
 #[derive(Debug, PartialEq)]
 enum Status {

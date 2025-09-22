@@ -8,7 +8,7 @@ use twilight_model::id::Id;
 use twilight_util::builder::embed::ImageSource;
 
 use super::{CommandHandler, CommandHandlerData};
-use crate::embed;
+use crate::utils::embed;
 
 #[derive(CommandModel, CreateCommand)]
 #[command(name = "info", desc = "Display general information about the bot")]
