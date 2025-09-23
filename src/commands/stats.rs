@@ -56,7 +56,6 @@ pub struct StatsCommand {}
 
 struct PlayerStats {
     user_id: String,
-    total_score: u32,
     penalized_score: u32,
     average_score: f32,
     days_played: usize,
@@ -253,7 +252,6 @@ impl CommandHandler for StatsCommand {
 
                 PlayerStats {
                     user_id,
-                    total_score,
                     penalized_score,
                     average_score,
                     days_played,
