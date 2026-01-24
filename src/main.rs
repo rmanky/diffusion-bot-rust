@@ -13,6 +13,7 @@ use twilight_model::{
 
 mod activity;
 mod commands;
+mod solana;
 mod utils;
 
 #[tokio::main]
@@ -41,11 +42,31 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
     });
 
+    // Initialize wallet cache (loads from disk once)
+    let wallet_cache = solana::storage::create_wallet_cache();
+
+    // Initialize Solana client (optional - bot works without it)
+    let solana_client = match solana::client::SolanaClient::new() {
+        Ok(client) => {
+            let client = Arc::new(client);
+            if let Err(e) = solana::admin::initialize_admin_if_needed(&client, &wallet_cache).await {
+                log::warn!("Failed to initialize admin wallet: {}", e);
+            }
+            Some(client)
+        }
+        Err(e) => {
+            log::warn!("Solana client not configured: {}", e);
+            log::warn!("Token commands will not work until Solana is configured.");
+            None
+        }
+    };
+
     // We pass the Arc'd http client to our command data.
-    // Note: You may need to update CommandDelegateData to accept an Arc<HttpClient>.
     let command_data = Arc::new(CommandDelegateData {
         reqwest_client: reqwest::Client::new(),
         twilight_client: HttpClient::new(token.clone()),
+        solana_client,
+        wallet_cache: Some(wallet_cache),
     });
 
     let application_id = command_data

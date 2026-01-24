@@ -21,6 +21,7 @@
           pkgs.flyctl
           pkgs.pkg-config
           pkgs.openssl
+          pkgs.openssl.dev
           pkgs.cmake
         ];
       };

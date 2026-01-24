@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use reqwest::Client as ReqwestClient;
+use std::sync::Arc;
 use twilight_http::{client::InteractionClient, Client as TwilightClient};
 use twilight_interactions::command::{CommandModel, CreateCommand};
 use twilight_model::{
@@ -12,18 +13,24 @@ use twilight_model::{
         marker::{ApplicationMarker, InteractionMarker},
         Id,
     },
+    user::User,
 };
+
+use crate::solana::client::SolanaClient;
+use crate::solana::storage::WalletCache;
 
 use self::{
-    chat::ChatCommand, dream::DreamCommand, horde::HordeCommand, info::InfoCommand,
-    nano::NanoCommand, stats::StatsCommand,
+    balance::BalanceCommand, chat::ChatCommand, dream::DreamCommand, horde::HordeCommand,
+    info::InfoCommand, nano::NanoCommand, send::SendCommand, stats::StatsCommand,
 };
 
+mod balance;
 mod chat;
 mod dream;
 mod horde;
 mod info;
 mod nano;
+mod send;
 mod stats;
 
 pub struct CommandHandlerData<'a> {
@@ -31,6 +38,9 @@ pub struct CommandHandlerData<'a> {
     pub reqwest_client: ReqwestClient,
     pub interaction_client: InteractionClient<'a>,
     pub twilight_client: &'a TwilightClient,
+    pub invoking_user: Option<User>,
+    pub solana_client: Option<Arc<SolanaClient>>,
+    pub wallet_cache: Option<Arc<WalletCache>>,
 }
 
 #[async_trait]
@@ -46,6 +56,8 @@ pub trait CommandHandler {
 pub struct CommandDelegateData {
     pub reqwest_client: ReqwestClient,
     pub twilight_client: TwilightClient,
+    pub solana_client: Option<Arc<SolanaClient>>,
+    pub wallet_cache: Option<Arc<WalletCache>>,
 }
 
 #[async_trait]
@@ -68,6 +80,8 @@ impl CommandDelegate for CommandDelegateData {
             ChatCommand::create_command(),
             NanoCommand::create_command(),
             StatsCommand::create_command(),
+            BalanceCommand::create_command(),
+            SendCommand::create_command(),
         ]
         .map(std::convert::Into::into)
         .to_vec()
@@ -92,6 +106,9 @@ impl CommandDelegate for CommandDelegateData {
                 interaction_client: self.twilight_client.interaction(application_id),
                 reqwest_client: self.reqwest_client.to_owned(),
                 twilight_client: &self.twilight_client,
+                invoking_user: interaction.member.as_ref().and_then(|m| m.user.clone()),
+                solana_client: self.solana_client.clone(),
+                wallet_cache: self.wallet_cache.clone(),
             };
 
             match command_data.name.as_str() {
@@ -162,6 +179,32 @@ impl CommandDelegate for CommandDelegateData {
                         StatsCommand::from_interaction((*command_data).into())
                     {
                         stats_command
+                            .handle_command(
+                                command_handler_data,
+                                interaction.id,
+                                &interaction.token,
+                            )
+                            .await
+                    }
+                }
+                "balance" => {
+                    if let Ok(balance_command) =
+                        BalanceCommand::from_interaction((*command_data).into())
+                    {
+                        balance_command
+                            .handle_command(
+                                command_handler_data,
+                                interaction.id,
+                                &interaction.token,
+                            )
+                            .await
+                    }
+                }
+                "send" => {
+                    if let Ok(send_command) =
+                        SendCommand::from_interaction((*command_data).into())
+                    {
+                        send_command
                             .handle_command(
                                 command_handler_data,
                                 interaction.id,
