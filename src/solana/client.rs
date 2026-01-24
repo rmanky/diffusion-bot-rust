@@ -1,6 +1,6 @@
 use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_client::rpc_config::CommitmentConfig;
 use solana_sdk::{
-    commitment_config::CommitmentConfig,
     program_pack::Pack,
     pubkey::Pubkey,
     signature::{Keypair, Signature, Signer},
