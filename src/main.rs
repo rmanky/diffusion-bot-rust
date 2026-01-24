@@ -42,40 +42,54 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
     });
 
-    // Initialize wallet cache (loads from disk once)
-    let wallet_cache = solana::storage::create_wallet_cache();
+    let wallet_deriver = match solana::storage::create_wallet_deriver() {
+        Ok(d) => Some(d),
+        Err(e) => {
+            log::warn!("Wallet deriver not configured: {}", e);
+            None
+        }
+    };
 
-    // Initialize Solana client (optional - bot works without it)
     let solana_client = match solana::client::SolanaClient::new() {
         Ok(client) => {
             let client = Arc::new(client);
-            if let Err(e) = solana::admin::initialize_admin_if_needed(&client, &wallet_cache).await {
-                log::warn!("Failed to initialize admin wallet: {}", e);
+            if let Some(ref deriver) = wallet_deriver {
+                if let Err(e) = solana::admin::initialize_admin_if_needed(&client, deriver).await {
+                    log::warn!("Failed to initialize admin wallet: {}", e);
+                }
             }
             Some(client)
         }
         Err(e) => {
             log::warn!("Solana client not configured: {}", e);
-            log::warn!("Token commands will not work until Solana is configured.");
             None
         }
     };
 
-    // We pass the Arc'd http client to our command data.
-    let command_data = Arc::new(CommandDelegateData {
-        reqwest_client: reqwest::Client::new(),
-        twilight_client: HttpClient::new(token.clone()),
-        solana_client,
-        wallet_cache: Some(wallet_cache),
-    });
+    let twilight_client = HttpClient::new(token.clone());
 
-    let application_id = command_data
-        .twilight_client
+    let bot_user_id = twilight_client
+        .current_user()
+        .await?
+        .model()
+        .await?
+        .id
+        .get();
+
+    let application_id = twilight_client
         .current_user_application()
         .await?
         .model()
         .await?
         .id;
+
+    let command_data = Arc::new(CommandDelegateData {
+        reqwest_client: reqwest::Client::new(),
+        twilight_client,
+        solana_client,
+        wallet_deriver,
+        bot_user_id,
+    });
 
     let interaction_client = command_data.twilight_client.interaction(application_id);
 
@@ -87,7 +101,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .message_cache_size(10)
         .build();
 
-    // The main event loop.
     while let Some(item) = shard.next_event(EventTypeFlags::all()).await {
         let event = match item {
             Ok(event) => event,

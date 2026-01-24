@@ -17,7 +17,7 @@ use twilight_model::{
 };
 
 use crate::solana::client::SolanaClient;
-use crate::solana::storage::WalletCache;
+use crate::solana::storage::WalletDeriver;
 
 use self::{
     balance::BalanceCommand, chat::ChatCommand, dream::DreamCommand, horde::HordeCommand,
@@ -40,7 +40,8 @@ pub struct CommandHandlerData<'a> {
     pub twilight_client: &'a TwilightClient,
     pub invoking_user: Option<User>,
     pub solana_client: Option<Arc<SolanaClient>>,
-    pub wallet_cache: Option<Arc<WalletCache>>,
+    pub wallet_deriver: Option<Arc<WalletDeriver>>,
+    pub bot_user_id: u64,
 }
 
 #[async_trait]
@@ -57,7 +58,8 @@ pub struct CommandDelegateData {
     pub reqwest_client: ReqwestClient,
     pub twilight_client: TwilightClient,
     pub solana_client: Option<Arc<SolanaClient>>,
-    pub wallet_cache: Option<Arc<WalletCache>>,
+    pub wallet_deriver: Option<Arc<WalletDeriver>>,
+    pub bot_user_id: u64,
 }
 
 #[async_trait]
@@ -108,7 +110,8 @@ impl CommandDelegate for CommandDelegateData {
                 twilight_client: &self.twilight_client,
                 invoking_user: interaction.member.as_ref().and_then(|m| m.user.clone()),
                 solana_client: self.solana_client.clone(),
-                wallet_cache: self.wallet_cache.clone(),
+                wallet_deriver: self.wallet_deriver.clone(),
+                bot_user_id: self.bot_user_id,
             };
 
             match command_data.name.as_str() {
@@ -201,8 +204,7 @@ impl CommandDelegate for CommandDelegateData {
                     }
                 }
                 "send" => {
-                    if let Ok(send_command) =
-                        SendCommand::from_interaction((*command_data).into())
+                    if let Ok(send_command) = SendCommand::from_interaction((*command_data).into())
                     {
                         send_command
                             .handle_command(

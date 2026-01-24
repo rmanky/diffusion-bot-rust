@@ -23,6 +23,7 @@
           pkgs.openssl
           pkgs.openssl.dev
           pkgs.cmake
+          pkgs.systemd.dev
         ];
       };
     };
