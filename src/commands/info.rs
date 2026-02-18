@@ -31,10 +31,10 @@ impl CommandHandler for InfoCommand {
                     kind: InteractionResponseType::ChannelMessageWithSource,
                     data: Some(InteractionResponseData {
                         embeds: Some(vec![embed::info()
-                            .title("Image(n) A World")
-                            .image(ImageSource::url("https://i.ibb.co/yB8nRPKc/image.png").unwrap())
+                            .title("Kimi K")
+                            .image(ImageSource::url("https://i.imgur.com/FF8gDJc.jpeg").unwrap())
                             .description(
-                                "`/dream` is now Imagen 4. It's like Imagen 3, but better.`",
+                                "No idea what happened to Qwen. That's okay, Kimi K2.5 is here. Oh, and `/horde` is dead. Long live the king.",
                             )
                             .build()]),
                         ..Default::default()

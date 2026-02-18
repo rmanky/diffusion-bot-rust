@@ -3,28 +3,35 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    rust-overlay.url = "github:oxalica/rust-overlay";
   };
 
-  outputs =
-    { self, nixpkgs, ... }:
+  outputs = { self, nixpkgs, rust-overlay, ... }:
     let
-      pkgs = import nixpkgs { system = "x86_64-linux"; };
+      system = "x86_64-linux";
+      overlays = [ (import rust-overlay) ];
+      pkgs = import nixpkgs { inherit system overlays; };
+      
+      rustToolchain = pkgs.rust-bin.stable.latest.default.override {
+        extensions = [ "rust-src" "rust-analyzer" ];
+      };
     in
     {
-      devShells.x86_64-linux.default = pkgs.mkShell {
-        packages = [
-          pkgs.rustc
-          pkgs.rust-analyzer
-          pkgs.cargo
+      devShells.${system}.default = pkgs.mkShell {
+        buildInputs = [
+          rustToolchain
           pkgs.cargo-watch
-          pkgs.rustfmt
           pkgs.flyctl
           pkgs.pkg-config
           pkgs.openssl
-          pkgs.openssl.dev
           pkgs.cmake
-          pkgs.systemd.dev
+          pkgs.systemd
         ];
+
+        shellHook = ''
+          export PKG_CONFIG_PATH="${pkgs.openssl.dev}/lib/pkgconfig:$PKG_CONFIG_PATH"
+          export RUST_SRC_PATH="${rustToolchain}/lib/rustlib/src/rust/library"
+        '';
       };
     };
 }

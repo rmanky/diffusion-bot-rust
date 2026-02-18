@@ -17,6 +17,9 @@ use super::{CommandHandler, CommandHandlerData};
 use crate::utils::embed;
 use crate::utils::google_ai::{post_generative_ai, GoogleAiError, GOOGLE_API_PAID_KEY};
 
+const API_URL: &str =
+    "https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict";
+
 #[derive(CommandOption, CreateOption)]
 enum ImagenAspectRatio {
     #[option(name = "square", value = "1:1")]
@@ -156,12 +159,9 @@ async fn dream(
         }
     });
 
-    let api_url =
-        "https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict";
-
     let google_ai_response = post_generative_ai(
         reqwest_client,
-        api_url,
+        API_URL,
         &request_body,
         &[GOOGLE_API_PAID_KEY],
     )

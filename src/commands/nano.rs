@@ -1,5 +1,5 @@
+use std::fmt;
 use std::io::Cursor;
-use std::{env, fmt};
 
 use async_trait::async_trait;
 use base64::{engine::general_purpose, DecodeError, Engine as _};
@@ -31,6 +31,8 @@ use crate::utils::google_ai::{
 use super::{CommandHandler, CommandHandlerData};
 
 const MAX_ERROR_LENGTH: usize = 1000;
+const API_URL: &str =
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent";
 
 struct NanoError {
     message: String,
@@ -178,11 +180,8 @@ impl NanoCommand {
             followup_id
         );
 
-        let model_name = env::var("GEMINI_MODEL").unwrap();
-
         match nano(
             &reqwest_client,
-            &model_name,
             &self.prompt,
             resized_main.as_ref(),
             resized_secondary.as_ref(),
@@ -191,15 +190,8 @@ impl NanoCommand {
         {
             Ok((output, tier_used)) => {
                 info!("nano function returned Ok. Preparing final update for followup.");
-                send_success_followup(
-                    &client,
-                    interaction_token,
-                    followup_id,
-                    output,
-                    &model_name,
-                    tier_used,
-                )
-                .await?;
+                send_success_followup(&client, interaction_token, followup_id, output, tier_used)
+                    .await?;
                 info!("Final update sent successfully.");
             }
             Err(e) => {
@@ -290,10 +282,9 @@ async fn send_success_followup(
     token: &str,
     id: Id<MessageMarker>,
     output: NanoOutput,
-    model_name: &str,
     tier_used: &str,
 ) -> Result<(), Error> {
-    let footer_text = format!("Model: {} | Tier: {}", model_name, tier_used);
+    let footer_text = format!("Tier: {}", tier_used);
     let footer = EmbedFooterBuilder::new(footer_text).build();
     let mut embed_builder = embed::success().footer(footer);
 
@@ -398,7 +389,6 @@ fn image_to_json_part(image: &DynamicImage) -> Result<serde_json::Value, ImageEr
 
 async fn nano(
     reqwest_client: &Client,
-    model_name: &str,
     prompt: &str,
     main_image: Option<&DynamicImage>,
     secondary_image: Option<&DynamicImage>,
@@ -418,14 +408,9 @@ async fn nano(
     parts.push(json!({ "text": prompt }));
 
     let request_body = json!({ "contents": [{ "parts": parts }] });
-    let api_url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
-        model_name
-    );
-
     let keys_to_try = [GOOGLE_API_FREE_KEY, GOOGLE_API_PAID_KEY];
     let google_ai_response =
-        post_generative_ai(reqwest_client, &api_url, &request_body, &keys_to_try)
+        post_generative_ai(reqwest_client, API_URL, &request_body, &keys_to_try)
             .await
             .map_err(|e: GoogleAiError| NanoError { message: e.message })?;
     let text = google_ai_response.text;

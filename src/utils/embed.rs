@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use twilight_util::builder::embed::{EmbedBuilder, EmbedFieldBuilder};
 
 pub const PROMPT_COLOR: u32 = 0x5865F2;
@@ -24,11 +25,11 @@ pub fn success() -> EmbedBuilder {
     EmbedBuilder::new().title("Success").color(SUCCESS_COLOR)
 }
 
-pub fn failure(error: &str) -> EmbedBuilder {
+pub fn failure(error: impl Display) -> EmbedBuilder {
     EmbedBuilder::new()
         .title("Failure")
         .color(FAILURE_COLOR)
-        .description(format!("```\n{}\n```", error))
+        .description(format!("```\n{error}\n```"))
 }
 
 pub fn info() -> EmbedBuilder {

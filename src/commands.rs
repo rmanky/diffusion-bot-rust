@@ -8,7 +8,6 @@ use twilight_model::{
         command::Command,
         interaction::{Interaction, InteractionData},
     },
-    channel::Channel,
     id::{
         marker::{ApplicationMarker, InteractionMarker},
         Id,
@@ -20,21 +19,19 @@ use crate::solana::client::SolanaClient;
 use crate::solana::storage::WalletDeriver;
 
 use self::{
-    balance::BalanceCommand, chat::ChatCommand, dream::DreamCommand, horde::HordeCommand,
-    info::InfoCommand, nano::NanoCommand, send::SendCommand, stats::StatsCommand,
+    balance::BalanceCommand, chat::ChatCommand, dream::DreamCommand, info::InfoCommand,
+    nano::NanoCommand, send::SendCommand, stats::StatsCommand,
 };
 
 mod balance;
 mod chat;
 mod dream;
-mod horde;
 mod info;
 mod nano;
 mod send;
 mod stats;
 
 pub struct CommandHandlerData<'a> {
-    pub channel: Channel,
     pub reqwest_client: ReqwestClient,
     pub interaction_client: InteractionClient<'a>,
     pub twilight_client: &'a TwilightClient,
@@ -76,7 +73,6 @@ pub trait CommandDelegate {
 impl CommandDelegate for CommandDelegateData {
     fn command_definitions(&self) -> Vec<Command> {
         [
-            HordeCommand::create_command(),
             DreamCommand::create_command(),
             InfoCommand::create_command(),
             ChatCommand::create_command(),
@@ -95,16 +91,7 @@ impl CommandDelegate for CommandDelegateData {
         application_id: Id<ApplicationMarker>,
     ) {
         if let Some(InteractionData::ApplicationCommand(command_data)) = interaction.data {
-            let channel = match interaction.channel {
-                Some(c) => c,
-                None => {
-                    log::warn!("Received a command from an unknown channel.");
-                    return;
-                }
-            };
-
             let command_handler_data = CommandHandlerData {
-                channel,
                 interaction_client: self.twilight_client.interaction(application_id),
                 reqwest_client: self.reqwest_client.to_owned(),
                 twilight_client: &self.twilight_client,
@@ -115,19 +102,6 @@ impl CommandDelegate for CommandDelegateData {
             };
 
             match command_data.name.as_str() {
-                "horde" => {
-                    if let Ok(horde_command) =
-                        HordeCommand::from_interaction((*command_data).into())
-                    {
-                        horde_command
-                            .handle_command(
-                                command_handler_data,
-                                interaction.id,
-                                &interaction.token,
-                            )
-                            .await
-                    }
-                }
                 "dream" => {
                     if let Ok(dream_command) =
                         DreamCommand::from_interaction((*command_data).into())
