@@ -184,7 +184,7 @@ impl CommandHandler for SendCommand {
                     .interaction_client
                     .update_response(interaction_token)
                     .embeds(Some(&[
-                        embed::failure(&format!("Transfer failed: {}", e)).build()
+                        embed::failure(format!("Transfer failed: {}", e)).build()
                     ]))
                     .await
                     .ok();

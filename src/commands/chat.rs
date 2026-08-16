@@ -24,7 +24,7 @@ use crate::utils::embed;
 use super::{CommandHandler, CommandHandlerData};
 
 #[derive(CommandModel, CreateCommand)]
-#[command(name = "chat", desc = "Chat with Kimi K2.5")]
+#[command(name = "chat", desc = "Chat with GPT 5.6 Luna")]
 pub struct ChatCommand {
     /// Prompt to send to the model.
     prompt: String,
@@ -32,7 +32,7 @@ pub struct ChatCommand {
     image: Option<ChannelAttachment>,
 }
 
-const API_URL: &str = "https://api.replicate.com/v1/models/moonshotai/kimi-k2.5/predictions";
+const API_URL: &str = "https://api.replicate.com/v1/models/openai/gpt-5.6-luna/predictions";
 const MAX_EMBED_LEN: usize = 4096;
 
 struct ChatContext<'a> {
@@ -78,8 +78,9 @@ impl<'a> ChatContext<'a> {
             .json(&ReplicateRequest {
                 input: ReplicateInput {
                     prompt: self.prompt,
-                    max_tokens: 2048,
-                    image: self.image_url,
+                    reasoning_effort: "medium",
+                    verbosity: "medium",
+                    image_input: self.image_url.into_iter().collect(),
                 },
                 stream: true,
             })
@@ -200,9 +201,9 @@ impl CommandHandler for ChatCommand {
 #[derive(Serialize)]
 struct ReplicateInput<'a> {
     prompt: &'a str,
-    max_tokens: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    image: Option<&'a str>,
+    reasoning_effort: &'static str,
+    verbosity: &'static str,
+    image_input: Vec<&'a str>,
 }
 
 #[derive(Serialize)]

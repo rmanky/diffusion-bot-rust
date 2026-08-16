@@ -1,8 +1,5 @@
 use async_trait::async_trait;
-use base64::engine::general_purpose;
-use base64::Engine;
 use reqwest::Client;
-use serde::Deserialize;
 use serde_json::json;
 use twilight_interactions::command::{CommandModel, CommandOption, CreateCommand, CreateOption};
 use twilight_model::http::attachment::Attachment;
@@ -15,10 +12,9 @@ use twilight_util::builder::embed::{EmbedFieldBuilder, EmbedFooterBuilder, Image
 
 use super::{CommandHandler, CommandHandlerData};
 use crate::utils::embed;
-use crate::utils::google_ai::{post_generative_ai, GoogleAiError, GOOGLE_API_PAID_KEY};
-
-const API_URL: &str =
-    "https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict";
+use crate::utils::google_ai::{
+    generate_image, GoogleAiError, GOOGLE_API_FREE_KEY, GOOGLE_API_PAID_KEY,
+};
 
 #[derive(CommandOption, CreateOption)]
 enum ImagenAspectRatio {
@@ -31,7 +27,7 @@ enum ImagenAspectRatio {
 }
 
 #[derive(CommandModel, CreateCommand)]
-#[command(name = "dream", desc = "Create an image with Imagen 4")]
+#[command(name = "dream", desc = "Create an image with Gemini 3.1 Flash Lite")]
 pub struct DreamCommand {
     /// Prompt for the model to generate.
     prompt: String,
@@ -42,17 +38,6 @@ pub struct DreamCommand {
 struct DreamParams<'a> {
     prompt: &'a str,
     aspect_ratio: &'a str,
-}
-
-#[derive(Deserialize)]
-struct ImagenResponse {
-    predictions: Vec<ImagenPrediction>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ImagenPrediction {
-    bytes_base64_encoded: String,
 }
 
 #[async_trait]
@@ -99,7 +84,8 @@ impl CommandHandler for DreamCommand {
         match dream(&reqwest_client, &dream_params).await {
             Ok((image, tier_used)) => {
                 let filename = "image.png".to_string();
-                let footer_text = format!("Model: imagen-4.0-generate-001 | Tier: {}", tier_used);
+                let footer_text =
+                    format!("Model: gemini-3.1-flash-lite-image | Tier: {}", tier_used);
                 let footer = EmbedFooterBuilder::new(footer_text).build();
 
                 interaction_client
@@ -148,49 +134,13 @@ async fn dream(
     let prompt = dream_params.prompt;
     let aspect_ratio = dream_params.aspect_ratio;
 
-    let request_body = json!({
-        "instances": [
-            { "prompt": prompt }
-        ],
-        "parameters": {
-            "sampleCount": 1,
-            "aspectRatio": aspect_ratio,
-            "personGeneration": "allow_all"
-        }
-    });
-
-    let google_ai_response = post_generative_ai(
+    generate_image(
         reqwest_client,
-        API_URL,
-        &request_body,
-        &[GOOGLE_API_PAID_KEY],
+        "gemini-3.1-flash-lite-image",
+        vec![json!({ "text": prompt })],
+        Some(aspect_ratio),
+        &[GOOGLE_API_FREE_KEY, GOOGLE_API_PAID_KEY],
     )
     .await
-    .map_err(|e: GoogleAiError| DreamError { message: e.message })?;
-    let text = google_ai_response.text;
-    let tier_used = google_ai_response.tier_used;
-
-    let imagen_response: ImagenResponse = serde_json::from_str(&text).map_err(|e| DreamError {
-        message: format!(
-            "JSON Parse Error with tier {} {}: \nResponse: {}",
-            tier_used, e, text
-        ),
-    })?;
-
-    let base64_image = imagen_response
-        .predictions
-        .get(0)
-        .ok_or(DreamError {
-            message: "No predictions in response".to_string(),
-        })?
-        .bytes_base64_encoded
-        .clone();
-
-    let image = general_purpose::STANDARD
-        .decode(base64_image)
-        .map_err(|e| DreamError {
-            message: format!("Base64 Decode Error: {}", e),
-        })?;
-
-    Ok((image, tier_used))
+    .map_err(|e: GoogleAiError| DreamError { message: e.message })
 }
