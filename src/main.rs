@@ -104,7 +104,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     while let Some(item) = shard.next_event(EventTypeFlags::all()).await {
         let event = match item {
             Ok(event) => event,
-            Err(_) => continue,
+            Err(error) => {
+                log::error!("Discord gateway error: {error:?}");
+                continue;
+            }
         };
 
         cache.update(&event);

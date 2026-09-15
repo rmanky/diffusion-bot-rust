@@ -42,6 +42,7 @@ impl CommandHandler for InfoCommand {
                 }),
             )
             .await
+            .map_err(|error| log::error!("Failed to respond to /info: {error:?}"))
             .ok();
     }
 }

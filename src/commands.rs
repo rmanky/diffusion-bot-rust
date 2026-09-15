@@ -91,6 +91,8 @@ impl CommandDelegate for CommandDelegateData {
         application_id: Id<ApplicationMarker>,
     ) {
         if let Some(InteractionData::ApplicationCommand(command_data)) = interaction.data {
+            let command_name = command_data.name.clone();
+
             let command_handler_data = CommandHandlerData {
                 interaction_client: self.twilight_client.interaction(application_id),
                 reqwest_client: self.reqwest_client.to_owned(),
@@ -101,95 +103,52 @@ impl CommandDelegate for CommandDelegateData {
                 bot_user_id: self.bot_user_id,
             };
 
-            match command_data.name.as_str() {
-                "dream" => {
-                    if let Ok(dream_command) =
-                        DreamCommand::from_interaction((*command_data).into())
-                    {
-                        dream_command
-                            .handle_command(
-                                command_handler_data,
-                                interaction.id,
-                                &interaction.token,
-                            )
-                            .await
+            macro_rules! dispatch {
+                ($command_type:ty) => {
+                    match <$command_type>::from_interaction((*command_data).into()) {
+                        Ok(command) => {
+                            command
+                                .handle_command(
+                                    command_handler_data,
+                                    interaction.id,
+                                    &interaction.token,
+                                )
+                                .await
+                        }
+                        Err(error) => {
+                            log::error!(
+                                "Failed to parse /{} interaction: {:?}",
+                                command_name,
+                                error
+                            );
+                        }
                     }
+                };
+            }
+
+            match command_name.as_str() {
+                "dream" => {
+                    dispatch!(DreamCommand);
                 }
                 "info" => {
-                    if let Ok(info_command) = InfoCommand::from_interaction((*command_data).into())
-                    {
-                        info_command
-                            .handle_command(
-                                command_handler_data,
-                                interaction.id,
-                                &interaction.token,
-                            )
-                            .await
-                    }
+                    dispatch!(InfoCommand);
                 }
                 "chat" => {
-                    if let Ok(chat_command) = ChatCommand::from_interaction((*command_data).into())
-                    {
-                        chat_command
-                            .handle_command(
-                                command_handler_data,
-                                interaction.id,
-                                &interaction.token,
-                            )
-                            .await
-                    }
+                    dispatch!(ChatCommand);
                 }
                 "nano" => {
-                    if let Ok(nano_command) = NanoCommand::from_interaction((*command_data).into())
-                    {
-                        nano_command
-                            .handle_command(
-                                command_handler_data,
-                                interaction.id,
-                                &interaction.token,
-                            )
-                            .await
-                    }
+                    dispatch!(NanoCommand);
                 }
                 "stats" => {
-                    if let Ok(stats_command) =
-                        StatsCommand::from_interaction((*command_data).into())
-                    {
-                        stats_command
-                            .handle_command(
-                                command_handler_data,
-                                interaction.id,
-                                &interaction.token,
-                            )
-                            .await
-                    }
+                    dispatch!(StatsCommand);
                 }
                 "balance" => {
-                    if let Ok(balance_command) =
-                        BalanceCommand::from_interaction((*command_data).into())
-                    {
-                        balance_command
-                            .handle_command(
-                                command_handler_data,
-                                interaction.id,
-                                &interaction.token,
-                            )
-                            .await
-                    }
+                    dispatch!(BalanceCommand);
                 }
                 "send" => {
-                    if let Ok(send_command) = SendCommand::from_interaction((*command_data).into())
-                    {
-                        send_command
-                            .handle_command(
-                                command_handler_data,
-                                interaction.id,
-                                &interaction.token,
-                            )
-                            .await
-                    }
+                    dispatch!(SendCommand);
                 }
-                &_ => {}
+                _ => {}
             }
         }
     }
