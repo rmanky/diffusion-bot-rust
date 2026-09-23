@@ -57,7 +57,7 @@ const ALIASES: &[Alias] = &[
 ];
 
 #[derive(CommandModel, CreateCommand)]
-#[command(name = "stats", desc = "Show the Wordle score grid")]
+#[command(name = "stats", desc = "Compute the Wordle leaderboard")]
 pub struct StatsCommand {}
 
 #[derive(Deserialize)]
@@ -282,6 +282,45 @@ impl CommandHandler for StatsCommand {
             });
         }
 
+        // Build the same all-time leaderboard as before, including a 7-point
+        // penalty for days a player missed. The image is an additional view of
+        // the history; it does not replace the leaderboard text.
+        let total_days = days.len();
+        let mut player_totals: HashMap<String, (u32, usize)> = HashMap::new();
+        for day in &days {
+            for (user_id, score) in &day.scores {
+                let entry = player_totals.entry(user_id.clone()).or_default();
+                entry.0 += *score;
+                entry.1 += 1;
+            }
+        }
+
+        let mut leaderboard: Vec<(String, u32, f32, usize)> = player_totals
+            .into_iter()
+            .map(|(user_id, (score_total, days_played))| {
+                let penalized_total =
+                    score_total + (total_days - days_played) as u32 * DEFAULT_SCORE;
+                let average = score_total as f32 / days_played as f32;
+                (user_id, penalized_total, average, days_played)
+            })
+            .collect();
+        leaderboard.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
+
+        let description = leaderboard
+            .iter()
+            .enumerate()
+            .map(|(i, (user_id, total, average, days_played))| {
+                format!(
+                    "**{}.** <@{}> Avg: **{:.2}** (Total: {}, Days: {})\n",
+                    i + 1,
+                    user_id,
+                    average,
+                    total,
+                    days_played
+                )
+            })
+            .collect::<String>();
+
         let png = match stats_grid::render_png(&days) {
             Ok(png) => png,
             Err(e) => {
@@ -300,7 +339,8 @@ impl CommandHandler for StatsCommand {
 
         let filename = "wordle-score-grid.png".to_string();
         let final_embed = embed::success()
-            .title("Wordle Score Grid")
+            .title("Wordle Leaderboard")
+            .description(&description)
             .image(ImageSource::attachment(&filename).unwrap())
             .build();
         let attachment = Attachment::from_bytes(filename, png, 1);
