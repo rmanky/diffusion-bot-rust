@@ -1,12 +1,11 @@
 use std::collections::HashMap;
 use std::fs;
-use std::time::Duration;
 
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Deserialize;
-use twilight_http::error::ErrorType;
 use twilight_interactions::command::{CommandModel, CreateCommand};
 use twilight_model::channel::Message;
 use twilight_model::http::attachment::Attachment;
@@ -15,19 +14,22 @@ use twilight_model::id::marker::{ChannelMarker, InteractionMarker, MessageMarker
 use twilight_model::id::Id;
 use twilight_util::builder::embed::ImageSource;
 
-use super::{CommandHandler, CommandHandlerData};
 use super::stats_grid::{self, ScoreDay};
+use super::{CommandHandler, CommandHandlerData};
 use crate::utils::embed;
 
 const TARGET_CHANNEL_ID: Id<ChannelMarker> = Id::new(946818381955366972);
 const TARGET_BOT_ID: Id<UserMarker> = Id::new(1211781489931452447);
 const DEFAULT_SCORE: u32 = 7;
 const HISTORY_PATH: &str = "data/wordle_history.json";
+const IMAGE_FILENAME: &str = "wordle-score-grid.png";
 
-static USER_ID_CAPTURE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<@(\d+)>").unwrap());
 static USER_PATTERN_RE: Lazy<Regex> = Lazy::new(|| {
     let user_mention_pattern = r"<@\d+>";
-    let mut patterns: Vec<String> = ALIASES.iter().map(|a| regex::escape(a.name)).collect();
+    let mut patterns: Vec<String> = ALIASES
+        .iter()
+        .map(|alias| regex::escape(alias.name))
+        .collect();
     patterns.push(user_mention_pattern.to_string());
     Regex::new(&patterns.join("|")).unwrap()
 });
@@ -83,18 +85,34 @@ struct CachedCorrection {
     _reason: String,
 }
 
-fn load_cached_history() -> Result<CachedHistory, Box<dyn std::error::Error + Send + Sync>> {
-    let contents = fs::read_to_string(HISTORY_PATH)?;
-    let history: CachedHistory = serde_json::from_str(&contents)?;
+struct PlayerStats {
+    user_id: String,
+    total: u32,
+    average: f32,
+    days_played: usize,
+}
+
+#[derive(Default)]
+struct PlayerTotal {
+    score: u32,
+    days_played: usize,
+}
+
+fn load_cached_history() -> Result<(CachedHistory, Id<MessageMarker>)> {
+    let contents = fs::read_to_string(HISTORY_PATH).context("reading cached Wordle history")?;
+    let history: CachedHistory =
+        serde_json::from_str(&contents).context("parsing cached Wordle history")?;
 
     if history.days.is_empty()
         || history.days.last().map(|day| day.message_id.as_str())
             != Some(history.anchor_message_id.as_str())
     {
-        return Err("cached history does not end at its anchor message".into());
+        return Err(anyhow!("cached history does not end at its anchor message"));
     }
-
-    history.anchor_message_id.parse::<u64>()?;
+    let anchor_id = history
+        .anchor_message_id
+        .parse::<u64>()
+        .context("parsing history anchor message ID")?;
 
     for correction in &history.corrections {
         if !history
@@ -102,82 +120,190 @@ fn load_cached_history() -> Result<CachedHistory, Box<dyn std::error::Error + Se
             .iter()
             .any(|day| day.message_id == correction.message_id)
         {
-            return Err(format!(
+            return Err(anyhow!(
                 "cached correction references missing message {}",
                 correction.message_id
-            )
-            .into());
+            ));
         }
     }
 
-    Ok(history)
+    Ok((history, Id::new(anchor_id)))
 }
 
 async fn get_all_messages(
     data: &CommandHandlerData<'_>,
     anchor_message_id: Id<MessageMarker>,
-) -> Result<Vec<Message>, Box<dyn std::error::Error + Send + Sync>> {
-    let mut all_messages = Vec::new();
-    let mut last_message_id = anchor_message_id;
-    let mut num_messages_crawled = 0;
+) -> Result<Vec<Message>> {
+    let mut score_messages = Vec::new();
+    let mut cursor = anchor_message_id;
+    let mut crawled = 0;
 
     loop {
-        let result = data
+        let response = data
             .twilight_client
             .channel_messages(TARGET_CHANNEL_ID)
-            .after(last_message_id)
+            .after(cursor)
             .limit(100)
-            .await;
+            .await?
+            .model()
+            .await?;
 
-        let mut messages: Vec<Message> = match result {
-            Ok(response) => response.model().await?,
-            Err(e) => {
-                if let ErrorType::Response { body, status, .. } = e.kind() {
-                    if *status == 429 {
-                        let body_json: serde_json::Value = serde_json::from_slice(body)?;
-                        let retry_after = body_json["retry_after"].as_f64().unwrap_or(0.5);
-                        log::warn!("Rate limited, retrying after {}s", retry_after);
-                        tokio::time::sleep(Duration::from_secs_f64(retry_after)).await;
-                        continue;
-                    }
-                }
-                return Err(e.into());
-            }
-        };
+        let mut page: Vec<Message> = response;
 
-        if messages.is_empty() {
+        if page.is_empty() {
             break;
         }
 
-        // Discord returns `after` pages oldest-first. Sort explicitly so the
-        // cursor and score processing stay correct if response ordering changes.
-        messages.sort_by_key(|message| message.id.get());
-        num_messages_crawled += messages.len();
-        last_message_id = messages.last().expect("non-empty page").id;
+        page.sort_by_key(|message| message.id.get());
+        crawled += page.len();
+        cursor = page.last().expect("page is non-empty").id;
+        score_messages.extend(page.into_iter().filter(is_score_message));
+    }
 
-        for message in messages {
-            if message.author.id == TARGET_BOT_ID && message.content.contains("Your group is on") {
-                all_messages.push(message);
+    log::info!(
+        "Fetched {} score messages after the cached snapshot.",
+        score_messages.len()
+    );
+    log::info!("Crawled {crawled} messages.");
+    Ok(score_messages)
+}
+
+fn is_score_message(message: &Message) -> bool {
+    message.author.id == TARGET_BOT_ID && message.content.contains("Your group is on")
+}
+
+fn user_id_from_token(token: &str) -> Option<String> {
+    if let Some(user_id) = token
+        .strip_prefix("<@")
+        .and_then(|token| token.strip_suffix('>'))
+    {
+        return Some(user_id.to_owned());
+    }
+
+    ALIASES
+        .iter()
+        .find(|alias| alias.name == token)
+        .map(|alias| alias.id.to_string())
+}
+
+fn parse_message_scores(content: &str) -> HashMap<String, u32> {
+    let mut scores = HashMap::new();
+
+    for line in content.lines().skip(1) {
+        let cleaned_line = line.replace('\\', "");
+        let Some((score_part, users_part)) = cleaned_line.split_once(':') else {
+            continue;
+        };
+        let score = score_part
+            .chars()
+            .find(|character| character.is_ascii_digit() || *character == 'X')
+            .and_then(|character| character.to_digit(10))
+            .unwrap_or(DEFAULT_SCORE);
+
+        for token in USER_PATTERN_RE
+            .find_iter(users_part)
+            .map(|matched| matched.as_str())
+        {
+            if let Some(user_id) = user_id_from_token(token) {
+                scores.insert(user_id, score);
             }
         }
     }
 
-    log::info!("Fetched {} score messages after the cached snapshot.", all_messages.len());
-    log::info!("Crawled {} messages.", num_messages_crawled);
-    Ok(all_messages)
+    scores
 }
 
-fn get_user_id_from_token(token: &str) -> Option<String> {
-    if let Some(id_match) = USER_ID_CAPTURE_RE.captures(token).and_then(|c| c.get(1)) {
-        return Some(id_match.as_str().to_string());
+fn assemble_score_days(history: CachedHistory, messages: &[Message]) -> Vec<ScoreDay> {
+    let mut corrections: HashMap<String, HashMap<String, u32>> = history
+        .corrections
+        .into_iter()
+        .map(|correction| (correction.message_id, correction.scores_added))
+        .collect();
+    let mut days = Vec::with_capacity(history.days.len() + messages.len());
+
+    for day in history.days {
+        let mut scores = day.scores;
+        if let Some(added_scores) = corrections.remove(&day.message_id) {
+            scores.extend(added_scores);
+        }
+        days.push(ScoreDay {
+            timestamp: day.timestamp,
+            scores,
+        });
     }
 
-    if let Some(alias) = ALIASES.iter().find(|a| a.name == token) {
-        return Some(alias.id.to_string());
+    days.extend(messages.iter().map(|message| ScoreDay {
+        timestamp: message.timestamp.iso_8601().to_string(),
+        scores: parse_message_scores(&message.content),
+    }));
+    days
+}
+
+fn calculate_leaderboard(days: &[ScoreDay]) -> Vec<PlayerStats> {
+    let total_days = days.len();
+    let mut totals: HashMap<String, PlayerTotal> = HashMap::new();
+
+    for day in days {
+        for (user_id, score) in &day.scores {
+            let total = totals.entry(user_id.clone()).or_default();
+            total.score += *score;
+            total.days_played += 1;
+        }
     }
 
-    log::warn!("Could not resolve token to user ID: '{}'", token);
-    None
+    let mut leaderboard: Vec<PlayerStats> = totals
+        .into_iter()
+        .map(|(user_id, total)| PlayerStats {
+            user_id,
+            total: total.score + (total_days - total.days_played) as u32 * DEFAULT_SCORE,
+            average: total.score as f32 / total.days_played as f32,
+            days_played: total.days_played,
+        })
+        .collect();
+    leaderboard.sort_by(|a, b| a.average.total_cmp(&b.average));
+    leaderboard
+}
+
+fn leaderboard_description(leaderboard: &[PlayerStats]) -> String {
+    leaderboard
+        .iter()
+        .enumerate()
+        .map(|(rank, player)| {
+            format!(
+                "**{}.** <@{}> Avg: **{:.2}** (Total: {}, Days: {})\n",
+                rank + 1,
+                player.user_id,
+                player.average,
+                player.total,
+                player.days_played
+            )
+        })
+        .collect()
+}
+
+async fn build_stats(data: &CommandHandlerData<'_>) -> Result<(String, Vec<u8>)> {
+    let (history, anchor_id) = load_cached_history()?;
+    let messages = get_all_messages(data, anchor_id).await?;
+    let days = assemble_score_days(history, &messages);
+    let description = leaderboard_description(&calculate_leaderboard(&days));
+    let png =
+        stats_grid::render_png(&days).map_err(|error| anyhow!("rendering stats image: {error}"))?;
+    Ok((description, png))
+}
+
+async fn respond_with_error(
+    data: &CommandHandlerData<'_>,
+    interaction_token: &str,
+    error: anyhow::Error,
+) {
+    let error_message = format!("{error:#}");
+    log::error!("{error_message}");
+    let error_embed = embed::failure(&error_message).build();
+    data.interaction_client
+        .update_response(interaction_token)
+        .embeds(Some(&[error_embed]))
+        .await
+        .ok();
 }
 
 #[async_trait]
@@ -201,149 +327,20 @@ impl CommandHandler for StatsCommand {
             .await
             .ok();
 
-        let history = match load_cached_history() {
-            Ok(history) => history,
-            Err(e) => {
-                let error_msg = format!("Failed to read stats history: {}", e);
-                log::error!("{}", error_msg);
-                let err_embed = embed::failure(&error_msg).build();
-                command_handler_data
-                    .interaction_client
-                    .update_response(interaction_token)
-                    .embeds(Some(&[err_embed]))
-                    .await
-                    .ok();
-                return;
-            }
-        };
-        let anchor_message_id = Id::new(history.anchor_message_id.parse::<u64>().unwrap());
-
-        let messages = match get_all_messages(&command_handler_data, anchor_message_id).await {
-            Ok(messages) => messages,
-            Err(e) => {
-                let error_msg = format!("Failed to fetch messages: {}", e);
-                log::error!("{}", error_msg);
-                let err_embed = embed::failure(&error_msg).build();
-                command_handler_data
-                    .interaction_client
-                    .update_response(interaction_token)
-                    .embeds(Some(&[err_embed]))
-                    .await
-                    .ok();
+        let (description, png) = match build_stats(&command_handler_data).await {
+            Ok(stats) => stats,
+            Err(error) => {
+                respond_with_error(&command_handler_data, interaction_token, error).await;
                 return;
             }
         };
 
-        let mut cached_days = history.days;
-        for correction in history.corrections {
-            if let Some(day) = cached_days
-                .iter_mut()
-                .find(|day| day.message_id == correction.message_id)
-            {
-                day.scores.extend(correction.scores_added);
-            }
-        }
-
-        let mut days: Vec<ScoreDay> = cached_days
-            .into_iter()
-            .map(|day| ScoreDay {
-                timestamp: day.timestamp,
-                scores: day.scores,
-            })
-            .collect();
-
-        for message in &messages {
-            let mut daily_scores: HashMap<String, u32> = HashMap::new();
-            for line in message.content.split('\n').skip(1) {
-                let cleaned_line = line.replace("\\", "");
-                let parts: Vec<&str> = cleaned_line.split(':').collect();
-                if parts.len() < 2 {
-                    continue;
-                }
-
-                let score_part = parts[0];
-                let users_part = parts[1];
-
-                let score = score_part
-                    .chars()
-                    .find(|c| c.is_ascii_digit() || *c == 'X')
-                    .and_then(|c| c.to_digit(10))
-                    .unwrap_or(DEFAULT_SCORE);
-
-                for mat in USER_PATTERN_RE.find_iter(users_part) {
-                    if let Some(user_id) = get_user_id_from_token(mat.as_str()) {
-                        daily_scores.insert(user_id, score);
-                    }
-                }
-            }
-            days.push(ScoreDay {
-                timestamp: message.timestamp.iso_8601().to_string(),
-                scores: daily_scores,
-            });
-        }
-
-        // Build the same all-time leaderboard as before, including a 7-point
-        // penalty for days a player missed. The image is an additional view of
-        // the history; it does not replace the leaderboard text.
-        let total_days = days.len();
-        let mut player_totals: HashMap<String, (u32, usize)> = HashMap::new();
-        for day in &days {
-            for (user_id, score) in &day.scores {
-                let entry = player_totals.entry(user_id.clone()).or_default();
-                entry.0 += *score;
-                entry.1 += 1;
-            }
-        }
-
-        let mut leaderboard: Vec<(String, u32, f32, usize)> = player_totals
-            .into_iter()
-            .map(|(user_id, (score_total, days_played))| {
-                let penalized_total =
-                    score_total + (total_days - days_played) as u32 * DEFAULT_SCORE;
-                let average = score_total as f32 / days_played as f32;
-                (user_id, penalized_total, average, days_played)
-            })
-            .collect();
-        leaderboard.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
-
-        let description = leaderboard
-            .iter()
-            .enumerate()
-            .map(|(i, (user_id, total, average, days_played))| {
-                format!(
-                    "**{}.** <@{}> Avg: **{:.2}** (Total: {}, Days: {})\n",
-                    i + 1,
-                    user_id,
-                    average,
-                    total,
-                    days_played
-                )
-            })
-            .collect::<String>();
-
-        let png = match stats_grid::render_png(&days) {
-            Ok(png) => png,
-            Err(e) => {
-                let error_msg = format!("Failed to render stats image: {}", e);
-                log::error!("{}", error_msg);
-                let err_embed = embed::failure(&error_msg).build();
-                command_handler_data
-                    .interaction_client
-                    .update_response(interaction_token)
-                    .embeds(Some(&[err_embed]))
-                    .await
-                    .ok();
-                return;
-            }
-        };
-
-        let filename = "wordle-score-grid.png".to_string();
+        let attachment = Attachment::from_bytes(IMAGE_FILENAME.to_owned(), png, 1);
         let final_embed = embed::success()
             .title("Wordle Leaderboard")
             .description(&description)
-            .image(ImageSource::attachment(&filename).unwrap())
+            .image(ImageSource::attachment(IMAGE_FILENAME).unwrap())
             .build();
-        let attachment = Attachment::from_bytes(filename, png, 1);
 
         command_handler_data
             .interaction_client
