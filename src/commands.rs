@@ -30,6 +30,7 @@ mod info;
 mod nano;
 mod send;
 mod stats;
+mod stats_grid;
 
 pub struct CommandHandlerData<'a> {
     pub reqwest_client: ReqwestClient,
