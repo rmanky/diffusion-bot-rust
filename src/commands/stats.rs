@@ -1,9 +1,11 @@
 use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use once_cell::sync::Lazy;
 use regex::Regex;
+use serde::Deserialize;
 use twilight_http::error::ErrorType;
 use twilight_interactions::command::{CommandModel, CreateCommand};
 use twilight_model::channel::Message;
@@ -17,15 +19,7 @@ use crate::utils::embed;
 const TARGET_CHANNEL_ID: Id<ChannelMarker> = Id::new(946818381955366972);
 const TARGET_BOT_ID: Id<UserMarker> = Id::new(1211781489931452447);
 const DEFAULT_SCORE: u32 = 7;
-// Cumulative /stats baseline through this score post, including the day-one corrections.
-const SNAPSHOT_ANCHOR_MESSAGE_ID: Id<MessageMarker> = Id::new(1551583881873068095);
-const SNAPSHOT_DAYS: usize = 491;
-const SNAPSHOT_PLAYERS: &[(&str, u32, usize)] = &[
-    ("150725833957441536", 2084, 485),
-    ("302973340371517441", 1998, 490),
-    ("481280459058184204", 1953, 483),
-    ("656347629524877312", 1950, 465),
-];
+const HISTORY_PATH: &str = "data/wordle_history.json";
 
 static USER_ID_CAPTURE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<@(\d+)>").unwrap());
 static USER_PATTERN_RE: Lazy<Regex> = Lazy::new(|| {
@@ -70,11 +64,66 @@ struct PlayerStats {
     days_played: usize,
 }
 
+#[derive(Deserialize)]
+struct CachedHistory {
+    anchor_message_id: String,
+    days: Vec<CachedScoreDay>,
+    #[serde(default)]
+    corrections: Vec<CachedCorrection>,
+}
+
+#[derive(Deserialize)]
+struct CachedScoreDay {
+    message_id: String,
+    #[serde(rename = "timestamp")]
+    _timestamp: String,
+    scores: HashMap<String, u32>,
+}
+
+#[derive(Deserialize)]
+struct CachedCorrection {
+    message_id: String,
+    scores_added: HashMap<String, u32>,
+    #[serde(rename = "reason")]
+    _reason: String,
+}
+
+fn load_cached_history() -> Result<CachedHistory, Box<dyn std::error::Error + Send + Sync>> {
+    let contents = fs::read_to_string(HISTORY_PATH)?;
+    let history: CachedHistory = serde_json::from_str(&contents)?;
+
+    if history.days.is_empty()
+        || history.days.last().map(|day| day.message_id.as_str())
+            != Some(history.anchor_message_id.as_str())
+    {
+        return Err("cached history does not end at its anchor message".into());
+    }
+
+    history.anchor_message_id.parse::<u64>()?;
+
+    for correction in &history.corrections {
+        if !history
+            .days
+            .iter()
+            .any(|day| day.message_id == correction.message_id)
+        {
+            return Err(format!(
+                "cached correction references missing message {}",
+                correction.message_id
+            )
+            .into());
+        }
+    }
+
+    Ok(history)
+}
+
 async fn get_all_messages(
     data: &CommandHandlerData<'_>,
+    anchor_message_id: Id<MessageMarker>,
 ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
     let mut all_messages = Vec::new();
-    let mut last_message_id = SNAPSHOT_ANCHOR_MESSAGE_ID;
+    let mut last_message_id = anchor_message_id;
     let mut num_messages_crawled = 0;
 
     loop {
@@ -157,7 +206,24 @@ impl CommandHandler for StatsCommand {
             .await
             .ok();
 
-        let messages = match get_all_messages(&command_handler_data).await {
+        let history = match load_cached_history() {
+            Ok(history) => history,
+            Err(e) => {
+                let error_msg = format!("Failed to read stats history: {}", e);
+                log::error!("{}", error_msg);
+                let err_embed = embed::failure(&error_msg).build();
+                command_handler_data
+                    .interaction_client
+                    .update_response(interaction_token)
+                    .embeds(Some(&[err_embed]))
+                    .await
+                    .ok();
+                return;
+            }
+        };
+        let anchor_message_id = Id::new(history.anchor_message_id.parse::<u64>().unwrap());
+
+        let messages = match get_all_messages(&command_handler_data, anchor_message_id).await {
             Ok(messages) => messages,
             Err(e) => {
                 let error_msg = format!("Failed to fetch messages: {}", e);
@@ -175,10 +241,25 @@ impl CommandHandler for StatsCommand {
 
         // Vec<day, HashMap<user_id, score>>
         let mut daily_results: Vec<HashMap<String, u32>> = Vec::new();
-        let mut all_participants: HashSet<String> = SNAPSHOT_PLAYERS
-            .iter()
-            .map(|(user_id, _, _)| (*user_id).to_string())
-            .collect();
+        let mut cached_totals: HashMap<String, u32> = HashMap::new();
+        let mut cached_days_played: HashMap<String, usize> = HashMap::new();
+        let mut all_participants = HashSet::new();
+
+        for day in &history.days {
+            for (user_id, score) in &day.scores {
+                *cached_totals.entry(user_id.clone()).or_default() += *score;
+                *cached_days_played.entry(user_id.clone()).or_default() += 1;
+                all_participants.insert(user_id.clone());
+            }
+        }
+
+        for correction in &history.corrections {
+            for (user_id, score) in &correction.scores_added {
+                *cached_totals.entry(user_id.clone()).or_default() += *score;
+                *cached_days_played.entry(user_id.clone()).or_default() += 1;
+                all_participants.insert(user_id.clone());
+            }
+        }
 
         for message in &messages {
             let mut daily_scores: HashMap<String, u32> = HashMap::new();
@@ -211,13 +292,8 @@ impl CommandHandler for StatsCommand {
         let mut leaderboard: Vec<PlayerStats> = all_participants
             .into_iter()
             .map(|user_id| {
-                let (snapshot_total, snapshot_days_played) = SNAPSHOT_PLAYERS
-                    .iter()
-                    .find(|(snapshot_user_id, _, _)| *snapshot_user_id == user_id.as_str())
-                    .map(|(_, total, days_played)| (*total, *days_played))
-                    .unwrap_or((0, 0));
-                let mut total_score = snapshot_total;
-                let mut days_played = snapshot_days_played;
+                let mut total_score = cached_totals.get(&user_id).copied().unwrap_or(0);
+                let mut days_played = cached_days_played.get(&user_id).copied().unwrap_or(0);
 
                 for day in &daily_results {
                     if let Some(score) = day.get(&user_id) {
@@ -226,7 +302,7 @@ impl CommandHandler for StatsCommand {
                     }
                 }
 
-                let total_days = SNAPSHOT_DAYS + daily_results.len();
+                let total_days = history.days.len() + daily_results.len();
                 let penalized_score = total_score
                     + (total_days - days_played) as u32 * DEFAULT_SCORE;
 

@@ -14,4 +14,6 @@ RUN cargo build --release
 # But beware that some images have old glibc which makes rust unhappy
 FROM debian:bookworm-slim
 RUN apt-get update && apt install -y openssl ca-certificates
+WORKDIR /app
+COPY --from=builder /prod/data/wordle_history.json /app/data/wordle_history.json
 COPY --from=builder /prod/target/release/diffusion-bot-rust /bin
