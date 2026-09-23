@@ -17,6 +17,15 @@ use crate::utils::embed;
 const TARGET_CHANNEL_ID: Id<ChannelMarker> = Id::new(946818381955366972);
 const TARGET_BOT_ID: Id<UserMarker> = Id::new(1211781489931452447);
 const DEFAULT_SCORE: u32 = 7;
+// Cumulative /stats baseline through this score post, including the day-one corrections.
+const SNAPSHOT_ANCHOR_MESSAGE_ID: Id<MessageMarker> = Id::new(1551583881873068095);
+const SNAPSHOT_DAYS: usize = 491;
+const SNAPSHOT_PLAYERS: &[(&str, u32, usize)] = &[
+    ("150725833957441536", 2084, 485),
+    ("302973340371517441", 1998, 490),
+    ("481280459058184204", 1953, 483),
+    ("656347629524877312", 1950, 465),
+];
 
 static USER_ID_CAPTURE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<@(\d+)>").unwrap());
 static USER_PATTERN_RE: Lazy<Regex> = Lazy::new(|| {
@@ -65,24 +74,18 @@ async fn get_all_messages(
     data: &CommandHandlerData<'_>,
 ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
     let mut all_messages = Vec::new();
-    let mut last_message_id: Option<Id<MessageMarker>> = None;
+    let mut last_message_id = SNAPSHOT_ANCHOR_MESSAGE_ID;
     let mut num_messages_crawled = 0;
 
-    'outer: loop {
-        let result = if let Some(message_id) = last_message_id {
-            data.twilight_client
-                .channel_messages(TARGET_CHANNEL_ID)
-                .before(message_id)
-                .limit(100)
-                .await
-        } else {
-            data.twilight_client
-                .channel_messages(TARGET_CHANNEL_ID)
-                .limit(100)
-                .await
-        };
+    loop {
+        let result = data
+            .twilight_client
+            .channel_messages(TARGET_CHANNEL_ID)
+            .after(last_message_id)
+            .limit(100)
+            .await;
 
-        let messages: Vec<Message> = match result {
+        let mut messages: Vec<Message> = match result {
             Ok(response) => response.model().await?,
             Err(e) => {
                 if let ErrorType::Response { body, status, .. } = e.kind() {
@@ -102,23 +105,20 @@ async fn get_all_messages(
             break;
         }
 
+        // Discord returns `after` pages oldest-first. Sort explicitly so the
+        // cursor and score processing stay correct if response ordering changes.
+        messages.sort_by_key(|message| message.id.get());
         num_messages_crawled += messages.len();
-        last_message_id = messages.last().map(|m| m.id);
+        last_message_id = messages.last().expect("non-empty page").id;
 
         for message in messages {
-            if message.author.id != TARGET_BOT_ID {
-                continue;
-            }
-            if message.content.contains("Your group is on a 1 day streak") {
-                all_messages.push(message.content);
-                break 'outer;
-            } else if message.content.contains("Your group is on") {
+            if message.author.id == TARGET_BOT_ID && message.content.contains("Your group is on") {
                 all_messages.push(message.content);
             }
         }
     }
 
-    log::info!("Fetched {} relevant messages.", all_messages.len());
+    log::info!("Fetched {} score messages after the cached snapshot.", all_messages.len());
     log::info!("Crawled {} messages.", num_messages_crawled);
     Ok(all_messages)
 }
@@ -173,25 +173,14 @@ impl CommandHandler for StatsCommand {
             }
         };
 
-        if messages.is_empty() {
-            let empty_embed = embed::success()
-                .description("Found no score messages!")
-                .build();
-            command_handler_data
-                .interaction_client
-                .update_response(interaction_token)
-                .embeds(Some(&[empty_embed]))
-                .await
-                .ok();
-            return;
-        }
-
         // Vec<day, HashMap<user_id, score>>
         let mut daily_results: Vec<HashMap<String, u32>> = Vec::new();
-        // HashSet<user_id>
-        let mut all_participants: HashSet<String> = HashSet::new();
+        let mut all_participants: HashSet<String> = SNAPSHOT_PLAYERS
+            .iter()
+            .map(|(user_id, _, _)| (*user_id).to_string())
+            .collect();
 
-        for message in messages.iter().rev() {
+        for message in &messages {
             let mut daily_scores: HashMap<String, u32> = HashMap::new();
             for line in message.split('\n').skip(1) {
                 let cleaned_line = line.replace("\\", "");
@@ -219,30 +208,27 @@ impl CommandHandler for StatsCommand {
             daily_results.push(daily_scores);
         }
 
-        // Day one overrides
-        daily_results[0].extend(HashMap::from([
-            ("302973340371517441".to_string(), 4), // Raúl 3.0
-            ("150725833957441536".to_string(), 6), // rmanky
-            ("481280459058184204".to_string(), 6), // troyotter
-        ]));
-
         let mut leaderboard: Vec<PlayerStats> = all_participants
             .into_iter()
             .map(|user_id| {
-                let mut total_score: u32 = 0;
-                let mut penalized_score: u32 = 0;
-                let mut days_played: usize = 0;
+                let (snapshot_total, snapshot_days_played) = SNAPSHOT_PLAYERS
+                    .iter()
+                    .find(|(snapshot_user_id, _, _)| *snapshot_user_id == user_id.as_str())
+                    .map(|(_, total, days_played)| (*total, *days_played))
+                    .unwrap_or((0, 0));
+                let mut total_score = snapshot_total;
+                let mut days_played = snapshot_days_played;
 
                 for day in &daily_results {
                     if let Some(score) = day.get(&user_id) {
                         total_score += *score;
-                        penalized_score += *score;
                         days_played += 1;
-                    } else {
-                        // User didn't play, add penalty
-                        penalized_score += DEFAULT_SCORE;
                     }
                 }
+
+                let total_days = SNAPSHOT_DAYS + daily_results.len();
+                let penalized_score = total_score
+                    + (total_days - days_played) as u32 * DEFAULT_SCORE;
 
                 let average_score = if days_played > 0 {
                     total_score as f32 / days_played as f32
