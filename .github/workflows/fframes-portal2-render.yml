@@ -20,6 +20,22 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Install native build tools
         run: sudo apt-get update && sudo apt-get install -y nasm pkg-config clang cmake
+      - name: Patch fframes time types and SVG expressions
+        working-directory: fframes_portal2_ci
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/lib.rs')
+          s = p.read_text()
+          s = s.replace('pub const DURATION: f64', 'pub const DURATION: f32')
+          s = s.replace('fn c(x:f64)->f64', 'fn c(x:f32)->f32')
+          s = s.replace('fn p(t:f64,a:f64,b:f64)->f64', 'fn p(t:f32,a:f32,b:f32)->f32')
+          s = s.replace('fn a(t:f64,s:f64,e:f64)->f64', 'fn a(t:f32,s:f32,e:f32)->f32')
+          s = s.replace('fn lyric(t:f64)', 'fn lyric(t:f32)')
+          s = s.replace('const C:&[(f64,&str)]', 'const C:&[(f32,&str)]')
+          s = s.replace('star*.3', 'star*0.3').replace('star*.6', 'star*0.6').replace('star*.4', 'star*0.4')
+          p.write_text(s)
+          PY
       - name: Render with fframes 1.2.0
         working-directory: fframes_portal2_ci
         run: cargo run --release -- render
