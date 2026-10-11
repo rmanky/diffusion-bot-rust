@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Install native build tools
-        run: sudo apt-get update && sudo apt-get install -y nasm pkg-config clang cmake
+        run: sudo apt-get update && sudo apt-get install -y nasm pkg-config clang cmake libx264-dev
       - name: Patch fframes source for 1.2.0
         working-directory: fframes_portal2_ci
         run: |
