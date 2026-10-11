@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Install native build tools
-        run: sudo apt-get update && sudo apt-get install -y nasm pkg-config clang cmake libx264-dev
+        run: sudo apt-get update && sudo apt-get install -y nasm pkg-config clang cmake
       - name: Patch fframes source for 1.2.0
         working-directory: fframes_portal2_ci
         run: |
@@ -39,16 +39,21 @@ jobs:
           ]:
               s=s.replace(a,b)
           p.write_text(s)
+
+          c = Path('Cargo.toml')
+          s = c.read_text()
+          s = s.replace('fframes = { version = "=1.2.0", features = ["h264", "libav-agree-gpl"] }', 'fframes = { version = "=1.2.0" }')
+          c.write_text(s)
           PY
       - name: Render with fframes 1.2.0
         working-directory: fframes_portal2_ci
-        run: cargo run --release -- render
+        run: cargo run --release -- render -o out.avi
       - name: Inspect rendered video
         working-directory: fframes_portal2_ci
-        run: ffprobe -v error -show_entries format=duration,size -show_entries stream=codec_name,width,height,r_frame_rate -of default=nw=1 out.mp4
+        run: ffprobe -v error -show_entries format=duration,size -show_entries stream=codec_name,width,height,r_frame_rate -of default=nw=1 out.avi
       - uses: actions/upload-artifact@v4
         with:
           name: portal2-fframes-render
-          path: fframes_portal2_ci/out.mp4
+          path: fframes_portal2_ci/out.avi
           compression-level: 0
           retention-days: 1
