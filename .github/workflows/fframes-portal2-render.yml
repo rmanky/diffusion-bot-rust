@@ -48,12 +48,14 @@ jobs:
       - name: Render with fframes 1.2.0
         working-directory: fframes_portal2_ci
         run: cargo run --release -- render -o out.avi
-      - name: Inspect rendered video
+      - name: Show rendered file
         working-directory: fframes_portal2_ci
-        run: ffprobe -v error -show_entries format=duration,size -show_entries stream=codec_name,width,height,r_frame_rate -of default=nw=1 out.avi
+        run: ls -lh out.avi
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: portal2-fframes-render
           path: fframes_portal2_ci/out.avi
+          if-no-files-found: error
           compression-level: 0
           retention-days: 1
