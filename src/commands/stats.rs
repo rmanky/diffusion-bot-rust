@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::fs;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, ensure, Context, Result};
 use async_trait::async_trait;
+use jiff::civil::Date;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Deserialize;
@@ -60,7 +61,12 @@ const ALIASES: &[Alias] = &[
 
 #[derive(CommandModel, CreateCommand)]
 #[command(name = "stats", desc = "Compute the Wordle leaderboard")]
-pub struct StatsCommand {}
+pub struct StatsCommand {
+    /// Start date (YYYY-MM-DD, YYYY/MM/DD, or YYYYMMDD)
+    from: Option<String>,
+    /// End date (YYYY-MM-DD, YYYY/MM/DD, or YYYYMMDD)
+    to: Option<String>,
+}
 
 #[derive(Deserialize)]
 struct CachedHistory {
@@ -281,10 +287,85 @@ fn leaderboard_description(leaderboard: &[PlayerStats]) -> String {
         .collect()
 }
 
-async fn build_stats(data: &CommandHandlerData<'_>) -> Result<(String, Vec<u8>)> {
+#[derive(Clone, Copy, Default)]
+struct DateRange {
+    from: Option<Date>,
+    to: Option<Date>,
+}
+
+impl DateRange {
+    fn parse(from: Option<&str>, to: Option<&str>) -> Result<Self> {
+        let from = from.map(|value| parse_date(value, "from")).transpose()?;
+        let to = to.map(|value| parse_date(value, "to")).transpose()?;
+        if let (Some(from), Some(to)) = (from, to) {
+            ensure!(
+                from <= to,
+                "`from` date ({from}) must not be after `to` date ({to})"
+            );
+        }
+        Ok(Self { from, to })
+    }
+
+    fn contains(self, date: Date) -> bool {
+        if let Some(from) = self.from {
+            if date < from {
+                return false;
+            }
+        }
+        if let Some(to) = self.to {
+            if date > to {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+fn parse_date(input: &str, option_name: &str) -> Result<Date> {
+    let trimmed = input.trim();
+    for format in ["%Y-%m-%d", "%Y/%m/%d"] {
+        if let Ok(date) = Date::strptime(format, trimmed) {
+            return Ok(date);
+        }
+    }
+    if trimmed.len() == 8 && trimmed.bytes().all(|byte| byte.is_ascii_digit()) {
+        if let Ok(date) = Date::strptime("%Y%m%d", trimmed) {
+            return Ok(date);
+        }
+    }
+    Err(anyhow!(
+        "invalid `{option_name}` date `{input}` (expected YYYY-MM-DD, YYYY/MM/DD, or YYYYMMDD)"
+    ))
+}
+
+fn filter_score_days(days: Vec<ScoreDay>, range: DateRange) -> Result<Vec<ScoreDay>> {
+    if range.from.is_none() && range.to.is_none() {
+        return Ok(days);
+    }
+
+    let mut filtered = Vec::with_capacity(days.len());
+    for day in days {
+        let date = stats_grid::eastern_date(&day.timestamp)?;
+        if range.contains(date) {
+            filtered.push(day);
+        }
+    }
+    ensure!(
+        !filtered.is_empty(),
+        "no Wordle scores found in the specified date range"
+    );
+    Ok(filtered)
+}
+
+async fn build_stats(
+    data: &CommandHandlerData<'_>,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> Result<(String, Vec<u8>)> {
+    let range = DateRange::parse(from, to)?;
     let (history, anchor_id) = load_cached_history()?;
     let messages = get_all_messages(data, anchor_id).await?;
-    let days = assemble_score_days(history, &messages);
+    let days = filter_score_days(assemble_score_days(history, &messages), range)?;
     let description = leaderboard_description(&calculate_leaderboard(&days));
     let png =
         stats_grid::render_png(&days).map_err(|error| anyhow!("rendering stats image: {error}"))?;
@@ -327,7 +408,13 @@ impl CommandHandler for StatsCommand {
             .await
             .ok();
 
-        let (description, png) = match build_stats(&command_handler_data).await {
+        let (description, png) = match build_stats(
+            &command_handler_data,
+            self.from.as_deref(),
+            self.to.as_deref(),
+        )
+        .await
+        {
             Ok(stats) => stats,
             Err(error) => {
                 respond_with_error(&command_handler_data, interaction_token, error).await;
@@ -349,5 +436,67 @@ impl CommandHandler for StatsCommand {
             .attachments(&[attachment])
             .await
             .ok();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_days() -> Vec<ScoreDay> {
+        vec![
+            ScoreDay {
+                timestamp: "2025-05-19T03:21:03.842000+00:00".to_owned(), // 2025-05-18 EDT
+                scores: HashMap::from([("150725833957441536".to_owned(), 4)]),
+            },
+            ScoreDay {
+                timestamp: "2025-05-20T03:22:05.365000+00:00".to_owned(), // 2025-05-19 EDT
+                scores: HashMap::from([("150725833957441536".to_owned(), 3)]),
+            },
+            ScoreDay {
+                timestamp: "2025-05-20T13:49:06.755000+00:00".to_owned(), // 2025-05-20 EDT
+                scores: HashMap::from([("150725833957441536".to_owned(), 5)]),
+            },
+        ]
+    }
+
+    #[test]
+    fn parses_supported_date_formats() {
+        let expected = Date::constant(2025, 5, 19);
+        assert_eq!(parse_date("2025-05-19", "from").unwrap(), expected);
+        assert_eq!(parse_date("2025/05/19", "from").unwrap(), expected);
+        assert_eq!(parse_date("20250519", "from").unwrap(), expected);
+        assert!(parse_date("2025051", "from").is_err());
+        assert!(parse_date("05-19-2025", "from").is_err());
+    }
+
+    #[test]
+    fn filters_by_optional_from_and_to() {
+        let all = filter_score_days(sample_days(), DateRange::parse(None, None).unwrap()).unwrap();
+        assert_eq!(all.len(), 3);
+
+        let from_only = filter_score_days(
+            sample_days(),
+            DateRange::parse(Some("2025/05/19"), None).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(from_only.len(), 2);
+
+        let to_only = filter_score_days(
+            sample_days(),
+            DateRange::parse(None, Some("20250519")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(to_only.len(), 2);
+
+        let both = filter_score_days(
+            sample_days(),
+            DateRange::parse(Some("2025-05-19"), Some("2025-05-19")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(both.len(), 1);
+        assert!(stats_grid::render_png(&both).is_ok());
+
+        assert!(DateRange::parse(Some("2025-05-20"), Some("2025-05-19")).is_err());
     }
 }

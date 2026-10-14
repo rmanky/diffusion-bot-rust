@@ -82,13 +82,21 @@ pub(super) fn render_png(days: &[ScoreDay]) -> Result<Vec<u8>> {
             &calendar_days,
         ),
     ];
-    players.sort_by(|a, b| a.average.total_cmp(&b.average));
+    players.sort_by(|a, b| {
+        (a.average == 0.0)
+            .cmp(&(b.average == 0.0))
+            .then_with(|| a.average.total_cmp(&b.average))
+    });
 
     let columns = calendar_days.len() / 7;
     let grid_width = columns as u32 * (CELL + CELL_GAP) - CELL_GAP;
+    let legend_item_width =
+        LEGEND_SWATCH_SIZE + LEGEND_LABEL_GAP + text_width("X", FONT_MEDIUM) + LEGEND_ITEM_GAP;
+    let min_content_width = 7 * legend_item_width - LEGEND_ITEM_GAP;
+    let content_width = grid_width.max(min_content_width);
     let grid_x = HORIZONTAL_MARGIN + WEEKDAY_LABEL_WIDTH + WEEKDAY_LABEL_GAP;
-    let grid_right = grid_x + grid_width;
-    let width = grid_right + HORIZONTAL_MARGIN;
+    let content_right = grid_x + content_width;
+    let width = content_right + HORIZONTAL_MARGIN;
 
     let eyebrow_height = text_height(FONT_SMALL);
     let title_height = text_height(FONT_LARGE);
@@ -179,7 +187,7 @@ pub(super) fn render_png(days: &[ScoreDay]) -> Result<Vec<u8>> {
         );
         draw_text_right(
             &mut image,
-            grid_right,
+            content_right,
             cursor_y,
             &format!("{:.2}", player.average),
             FONT_MEDIUM,
@@ -228,7 +236,7 @@ pub(super) fn render_png(days: &[ScoreDay]) -> Result<Vec<u8>> {
     );
     draw_text_center(
         &mut image,
-        grid_x + grid_width / 2,
+        grid_x + content_width / 2,
         timeline_y,
         &month_label(wordle_dates[wordle_dates.len() / 2]),
         FONT_SMALL,
@@ -236,7 +244,7 @@ pub(super) fn render_png(days: &[ScoreDay]) -> Result<Vec<u8>> {
     );
     draw_text_right(
         &mut image,
-        grid_right,
+        content_right,
         timeline_y,
         &month_label(wordle_dates[wordle_dates.len() - 1]),
         FONT_SMALL,
@@ -322,7 +330,7 @@ fn calendar_days(days: &[ScoreDay]) -> Result<Vec<CalendarDay>> {
     Ok(calendar_days)
 }
 
-fn eastern_date(timestamp: &str) -> Result<Date> {
+pub(super) fn eastern_date(timestamp: &str) -> Result<Date> {
     let timestamp: Timestamp = timestamp.parse().context("parsing Wordle timestamp")?;
     Ok(timestamp
         .in_tz("America/New_York")
